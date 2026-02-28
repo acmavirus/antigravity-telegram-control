@@ -41,7 +41,7 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'registerCommands':
-                    vscode.commands.executeCommand('antigravity-telegram-control.registerCommands');
+                    vscode.commands.executeCommand('antigravity-telegram-control.registerCommands', data.token, data.chatId);
                     break;
             }
         });

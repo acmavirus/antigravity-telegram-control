@@ -134,8 +134,9 @@ export function getSettingsHtml(token: string, chatId: string, debuggingPort: nu
 
     <div class="commands">
         <span>/start</span> – Get your Chat ID<br>
-        <span>/screenshot</span> – Capture desktop<br>
+        <span>/screenshot</span> – Capture Agent frame<br>
         <span>/ask</span> &lt;message&gt; – Send to agent chat<br>
+        <span>/check</span> – Check completion manually<br>
         <span>/cmd</span> &lt;command&gt; – Run in terminal<br>
         <span>/help</span> – Show commands
     </div>
@@ -156,7 +157,11 @@ export function getSettingsHtml(token: string, chatId: string, debuggingPort: nu
         });
 
         document.getElementById('register').addEventListener('click', () => {
-            vscode.postMessage({ command: 'registerCommands' });
+            vscode.postMessage({ 
+                command: 'registerCommands',
+                token: document.getElementById('token').value,
+                chatId: document.getElementById('chatId').value
+            });
         });
     </script>
 </body>

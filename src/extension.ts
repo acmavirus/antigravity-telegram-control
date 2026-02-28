@@ -28,10 +28,34 @@ function getAllowedChatId(): string | undefined {
     return vscode.workspace.getConfiguration('antigravityTelegramControl').get<string>('allowedChatId') || undefined;
 }
 
-async function registerSlashCommands(token: string): Promise<void> {
+async function registerSlashCommands(token: string, chatId?: string): Promise<void> {
     const tg = new Telegram(token);
-    await tg.setMyCommands(SLASH_COMMANDS);
+    console.log('[Telegram] Registering slash commands...', SLASH_COMMANDS.map(c => c.command));
+
+    // Set commands for all chat types
+    await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'default' } });
+    // Also set for private chats
+    await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'all_private_chats' } });
+    // Also set for group chats
+    await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'all_group_chats' } });
+
+    // If a specific chat ID is provided, register for that specific chat
+    if (chatId) {
+        const numericChatId = Number(chatId);
+        if (!isNaN(numericChatId)) {
+            await tg.setMyCommands(SLASH_COMMANDS, {
+                scope: { type: 'chat', chat_id: numericChatId }
+            });
+            await tg.setMyCommands(SLASH_COMMANDS, {
+                scope: { type: 'chat_administrators', chat_id: numericChatId }
+            });
+            console.log(`[Telegram] Commands registered for chat ${chatId}`);
+        }
+    }
+
+    console.log('[Telegram] Slash commands registered successfully!');
 }
+
 
 function getDebuggingPort(): number {
     return vscode.workspace.getConfiguration('antigravityTelegramControl').get<number>('debuggingPort') ?? 9222;
@@ -200,7 +224,7 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
 
         // ── Register slash commands (BEFORE launch, using static Telegram class) ──
         try {
-            await registerSlashCommands(token);
+            await registerSlashCommands(token, allowedChatId);
         } catch (e: any) {
             console.warn('setMyCommands failed:', e.message);
         }
@@ -243,30 +267,49 @@ export function activate(context: vscode.ExtensionContext) {
                 { enableScripts: true }
             );
             const cfg = vscode.workspace.getConfiguration('antigravityTelegramControl');
-            panel.webview.html = getSettingsHtml(cfg.get('botToken') ?? '', cfg.get('allowedChatId') ?? '');
+            panel.webview.html = getSettingsHtml(cfg.get('botToken') ?? '', cfg.get('allowedChatId') ?? '', cfg.get('debuggingPort') ?? 9222);
             panel.webview.onDidReceiveMessage(async (msg) => {
                 if (msg.command === 'save') {
                     await cfg.update('botToken', msg.token, vscode.ConfigurationTarget.Global);
                     await cfg.update('allowedChatId', msg.chatId, vscode.ConfigurationTarget.Global);
+                    await cfg.update('debuggingPort', msg.debuggingPort ?? 9222, vscode.ConfigurationTarget.Global);
                     vscode.window.showInformationMessage('Settings saved.');
                     stopBot();
                     startBot(context);
                 }
                 if (msg.command === 'registerCommands') {
-                    vscode.commands.executeCommand('antigravity-telegram-control.registerCommands');
+                    const tokenToUse = msg.token || cfg.get('botToken') || '';
+                    const chatIdToUse = cfg.get('allowedChatId') || '';
+                    vscode.commands.executeCommand('antigravity-telegram-control.registerCommands', tokenToUse, chatIdToUse);
                 }
             }, undefined, context.subscriptions);
         }),
 
-        vscode.commands.registerCommand('antigravity-telegram-control.registerCommands', async () => {
-            const token = getToken();
-            if (!token) { vscode.window.showErrorMessage('Bot Token chưa được cài đặt!'); return; }
-            try {
-                await registerSlashCommands(token);
-                vscode.window.showInformationMessage('✅ Slash commands đã được đăng ký trên Telegram!');
-            } catch (e: any) {
-                vscode.window.showErrorMessage('Đăng ký thất bại: ' + e.message);
+        vscode.commands.registerCommand('antigravity-telegram-control.registerCommands', async (manualToken?: string, manualChatId?: string) => {
+            const token = manualToken || getToken();
+            const chatId = manualChatId || getAllowedChatId();
+            if (!token) {
+                vscode.window.showErrorMessage('Bot Token chưa được cài đặt! Hãy nhập token và nhấn Save trước.');
+                return;
             }
+
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Registering Slash Commands on Telegram...",
+                cancellable: false
+            }, async () => {
+                try {
+                    await registerSlashCommands(token, chatId);
+                    vscode.window.showInformationMessage('✅ Slash commands đã được đăng ký thành công trên Telegram!');
+                    // Restart bot if token came from the UI but wasn't saved yet
+                    if (manualToken) {
+                        stopBot();
+                        startBot(context);
+                    }
+                } catch (e: any) {
+                    vscode.window.showErrorMessage('Đăng ký thất bại: ' + e.message);
+                }
+            });
         })
     );
 
