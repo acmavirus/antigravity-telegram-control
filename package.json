@@ -1,0 +1,96 @@
+{
+    "name": "antigravity-telegram-control",
+    "displayName": "Antigravity Telegram Control",
+    "description": "Control Antigravity Agent via Telegram and take screenshots.",
+    "version": "0.0.1",
+    "publisher": "acmavirus",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "antigravity-telegram-control.startBot",
+                "title": "Telegram: Start Bot"
+            },
+            {
+                "command": "antigravity-telegram-control.stopBot",
+                "title": "Telegram: Stop Bot"
+            },
+            {
+                "command": "antigravity-telegram-control.openSettings",
+                "title": "Telegram: Open Custom Settings"
+            },
+            {
+                "command": "antigravity-telegram-control.registerCommands",
+                "title": "Telegram: Register Slash Commands"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "telegram-control",
+                    "title": "Telegram Control",
+                    "icon": "$(broadcast)"
+                }
+            ]
+        },
+        "views": {
+            "telegram-control": [
+                {
+                    "id": "telegram-control-welcome",
+                    "name": "Telegram Settings",
+                    "type": "webview",
+                    "icon": "$(settings-gear)"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "Antigravity Telegram Control",
+            "properties": {
+                "antigravityTelegramControl.botToken": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Your Telegram Bot Token from @BotFather"
+                },
+                "antigravityTelegramControl.allowedChatId": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Allowed Telegram Chat ID to control the agent"
+                },
+                "antigravityTelegramControl.debuggingPort": {
+                    "type": "number",
+                    "default": 9222,
+                    "description": "VS Code / Antigravity IDE remote debugging port (launch IDE with --remote-debugging-port=9222)"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile && npm run lint",
+        "lint": "eslint src --ext ts",
+        "test": "node ./out/test/runTest.js"
+    },
+    "devDependencies": {
+        "@types/node": "16.x",
+        "@types/vscode": "^1.75.0",
+        "@types/ws": "^8.18.1",
+        "@typescript-eslint/eslint-plugin": "^5.53.0",
+        "@typescript-eslint/parser": "^5.53.0",
+        "eslint": "^8.34.0",
+        "typescript": "^4.9.5"
+    },
+    "dependencies": {
+        "screenshot-desktop": "^1.12.7",
+        "telegraf": "^4.12.2",
+        "ws": "^8.19.0"
+    }
+}
