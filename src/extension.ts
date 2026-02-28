@@ -14,7 +14,8 @@ const SLASH_COMMANDS = [
     { command: 'screenshot', description: 'Capture a screenshot of the Antigravity agent' },
     { command: 'help', description: 'Show available commands' },
     { command: 'cmd', description: 'Execute shell command /cmd <command>' },
-    { command: 'ask', description: 'Send a message to the Antigravity agent chat' }
+    { command: 'ask', description: 'Send a message to the Antigravity agent chat' },
+    { command: 'check', description: 'Manually check if the agent has finished responding' }
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,6 +94,7 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             '/start – Lấy Chat ID\n' +
             '/screenshot – Chụp khung chat agent\n' +
             '/ask <nội dung> – Gửi câu hỏi tới Antigravity Agent\n' +
+            '/check – Kiểm tra lại trạng thái hoàn tất của Agent\n' +
             '/cmd <lệnh> – Chạy lệnh trong terminal\n' +
             '/help – Hiển thị trợ giúp'
         ));
@@ -113,17 +115,45 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
                     title: "Antigravity Agent is thinking...",
                     cancellable: false
                 }, async () => {
-                    const port = getDebuggingPort();
-                    const finished = await waitForAgentResponse(port);
-                    if (finished) {
-                        ctx.reply(`✅ Agent đã trả lời xong!`);
-                    } else {
-                        ctx.reply(`⚠️ Hết thời gian chờ chờ Agent trả lời.`);
+                    try {
+                        const port = getDebuggingPort();
+                        const finished = await waitForAgentResponse(port);
+                        if (finished) {
+                            try {
+                                const buffer = await captureAgentScreenshot(port);
+                                await ctx.replyWithPhoto({ source: buffer }, { caption: `✅ Agent đã trả lời xong!` });
+                            } catch (screenshotErr: any) {
+                                ctx.reply(`✅ Agent đã trả lời xong!\n(Không thể chụp ảnh: ${screenshotErr.message})`);
+                            }
+                        } else {
+                            ctx.reply(`⚠️ Hết thời gian chờ Agent trả lời.`);
+                        }
+                    } catch (e: any) {
+                        ctx.reply(`❌ Lỗi theo dõi Agent: ${e.message}`);
                     }
                 });
 
             } catch (e: any) {
                 ctx.reply('Lỗi: ' + e.message);
+            }
+        });
+
+        bot.command('check', async (ctx) => {
+            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply('Unauthorized.'); return; }
+            const port = getDebuggingPort();
+            await ctx.reply('🔍 Đang kiểm tra lại trạng thái Agent...');
+
+            try {
+                const finished = await waitForAgentResponse(port, 10000); // Check once fairly quickly
+                if (finished) {
+                    const buffer = await captureAgentScreenshot(port);
+                    await ctx.replyWithPhoto({ source: buffer }, { caption: `✅ Agent đã hoàn tất!` });
+                } else {
+                    const buffer = await captureAgentScreenshot(port);
+                    await ctx.replyWithPhoto({ source: buffer }, { caption: `⏳ Agent vẫn đang xử lý hoặc chưa tìm thấy nút gửi.` });
+                }
+            } catch (e: any) {
+                ctx.reply('Lỗi khi kiểm tra: ' + e.message);
             }
         });
 

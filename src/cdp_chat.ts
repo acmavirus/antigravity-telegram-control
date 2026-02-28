@@ -298,7 +298,7 @@ export async function captureAgentScreenshot(port: number): Promise<Buffer> {
  * Polls the Antigravity chat input UI to determine when the agent has finished generating.
  * It does this by checking if the "stop" square button turns back into the "send" right arrow.
  */
-export async function waitForAgentResponse(port: number, timeoutMs = 300000): Promise<boolean> {
+export async function waitForAgentResponse(port: number, timeoutMs = 450000): Promise<boolean> {
     const raw = await httpGet(`http://127.0.0.1:${port}/json`);
     const targets: CdpTarget[] = JSON.parse(raw);
 
@@ -309,8 +309,13 @@ export async function waitForAgentResponse(port: number, timeoutMs = 300000): Pr
     );
 
     const startTime = Date.now();
+    let consecutiveIdleCount = 0;
 
     while (Date.now() - startTime < timeoutMs) {
+        let foundChatInThisLoop = false;
+        let isIdleInThisLoop = false;
+        let isGeneratingInThisLoop = false;
+
         for (const target of candidates) {
             try {
                 const client = new CdpClient(target.webSocketDebuggerUrl!);
@@ -319,13 +324,19 @@ export async function waitForAgentResponse(port: number, timeoutMs = 300000): Pr
                 const checkResult = await client.send('Runtime.evaluate', {
                     expression: `
                         (function() {
-                            // Check for generating state (stop button)
-                            const isGenerating = !!document.querySelector("svg.lucide-square, [data-tooltip-id='input-send-button-cancel-tooltip']");
+                            // 1. Trạng thái đang chạy (có nút Stop/Square)
+                            const stopIcon = document.querySelector("svg.lucide-square, [data-tooltip-id*='cancel'], [aria-label*='Stop'], [title*='Stop']");
+                            const isGenerating = !!stopIcon;
                             
-                            // Check for idle state (send arrow)
-                            const isIdle = !!document.querySelector("svg.lucide-arrow-right, svg[class*='arrow-right'], svg[class*='send']");
+                            // 2. Trạng thái chờ (có nút Send/Arrow)
+                            const sendIcon = document.querySelector("svg.lucide-arrow-right, svg[class*='arrow-right'], svg[class*='send'], [aria-label*='Send'], [title*='Send']");
                             
-                            // Check if the chat input area even exists here
+                            // 3. Kiểm tra xem ô input có đang bị disable không
+                            const editor = document.querySelector('[contenteditable="true"], textarea');
+                            const isInputDisabled = editor ? (editor.getAttribute('contenteditable') === 'false' || editor.disabled) : false;
+
+                            const isIdle = !!sendIcon && !isGenerating && !isInputDisabled;
+                            
                             const hasChat = !!document.querySelector('#conversation, #chat, #cascade, .chat-input, .interactive-input-editor');
 
                             return { hasChat, isGenerating, isIdle };
@@ -338,15 +349,30 @@ export async function waitForAgentResponse(port: number, timeoutMs = 300000): Pr
 
                 const val = checkResult?.result?.value;
                 if (val && val.hasChat) {
-                    // If it's no longer generating and is idle, we are done!
-                    if (!val.isGenerating && val.isIdle) {
-                        return true;
+                    foundChatInThisLoop = true;
+                    if (val.isGenerating) {
+                        isGeneratingInThisLoop = true;
                     }
-                    // If it has chat but is still generating, wait more.
+                    if (val.isIdle && !val.isGenerating) {
+                        isIdleInThisLoop = true;
+                    }
+                    // Once we find the active chat webview, we stick with its state
                     break;
                 }
             } catch (e: any) {
-                // Ignore connection errors during polling
+                // Ignore connection errors
+            }
+        }
+
+        if (foundChatInThisLoop) {
+            if (isIdleInThisLoop && !isGeneratingInThisLoop) {
+                consecutiveIdleCount++;
+                // Require 2 consecutive "idle" checks (approx 4 seconds) to be sure
+                if (consecutiveIdleCount >= 2) {
+                    return true;
+                }
+            } else {
+                consecutiveIdleCount = 0;
             }
         }
 
