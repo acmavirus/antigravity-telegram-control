@@ -188,6 +188,113 @@ export async function sendViaCDP(text: string, port: number): Promise<void> {
 }
 
 /**
+ * Captures a screenshot of the agent chat area using CDP.
+ * Returns the screenshot as a Buffer.
+ */
+export async function captureAgentScreenshot(port: number): Promise<Buffer> {
+    let raw;
+    try {
+        raw = await httpGet(`http://127.0.0.1:${port}/json`);
+    } catch (e: any) {
+        throw new Error(`Không kết nối được Port ${port}. Hãy chạy VS Code với --remote-debugging-port=${port}`);
+    }
+
+    const targets: CdpTarget[] = JSON.parse(raw);
+    const candidates = targets.filter(t =>
+        (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
+        t.webSocketDebuggerUrl &&
+        !t.url.includes('devtools://')
+    );
+
+    let logs: string[] = [];
+
+    for (const target of candidates) {
+        try {
+            const client = new CdpClient(target.webSocketDebuggerUrl!);
+            await client.connect();
+
+            const boxResult = await client.send('Runtime.evaluate', {
+                expression: `
+                    (function() {
+                        // Tìm các phần tử chứa chat (giống logic của sendViaCDP)
+                        const selectors = [
+                            '#conversation', 
+                            '#chat', 
+                            '#cascade', 
+                            '.chat-input', 
+                            '.interactive-input-editor',
+                            '.chat-container'
+                        ];
+                        
+                        let targetEl = null;
+                        for (const s of selectors) {
+                            const el = document.querySelector(s);
+                            // Kiểm tra xem phần tử có đang hiển thị không
+                            if (el && el.offsetParent !== null) {
+                                targetEl = el;
+                                break;
+                            }
+                        }
+
+                        if (!targetEl) return { error: "not_found" };
+
+                        // Cố gắng lấy khung bao quanh (thường là body hoặc container chính của webview)
+                        // Nếu targetEl quá nhỏ (ví dụ chỉ là ô input), lấy cha của nó
+                        let captureEl = targetEl;
+                        if (targetEl.offsetHeight < 100) {
+                            captureEl = targetEl.parentElement || targetEl;
+                        }
+                        
+                        // Nếu vẫn nhỏ, lấy body để đảm bảo thấy được nội dung
+                        if (captureEl.offsetHeight < 200) {
+                            captureEl = document.body;
+                        }
+
+                        const rect = captureEl.getBoundingClientRect();
+                        return {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width || document.documentElement.clientWidth,
+                            height: rect.height || document.documentElement.clientHeight,
+                            title: document.title
+                        };
+                    })()
+                `,
+                returnByValue: true
+            });
+
+            const res = boxResult?.result?.value;
+            if (res && !res.error) {
+                // Chụp ảnh vùng đã tìm thấy
+                const screenshotResult = await client.send('Page.captureScreenshot', {
+                    format: 'jpeg',
+                    quality: 90,
+                    clip: {
+                        x: res.x,
+                        y: res.y,
+                        width: res.width,
+                        height: res.height,
+                        scale: 1
+                    }
+                });
+
+                client.close();
+                if (screenshotResult && screenshotResult.data) {
+                    return Buffer.from(screenshotResult.data, 'base64');
+                }
+            } else {
+                logs.push(`${target.title}: ${res?.error || 'no_res'}`);
+                client.close();
+            }
+        } catch (e: any) {
+            logs.push(`${target.title}: ${e.message}`);
+        }
+    }
+
+    throw new Error(`Không tìm thấy khung chat đang hiển thị. (Chi tiết: ${logs.join(', ')})`);
+}
+
+/**
  * Polls the Antigravity chat input UI to determine when the agent has finished generating.
  * It does this by checking if the "stop" square button turns back into the "send" right arrow.
  */

@@ -5,13 +5,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getSettingsHtml } from './settings_view';
 import { TelegramSettingsProvider } from './settings_provider';
-import { sendViaCDP, waitForAgentResponse } from './cdp_chat';
+import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot } from './cdp_chat';
 
 let bot: Telegraf | undefined;
 
 const SLASH_COMMANDS = [
     { command: 'start', description: 'Start the bot and get your Chat ID' },
-    { command: 'screenshot', description: 'Capture a screenshot of your Desktop' },
+    { command: 'screenshot', description: 'Capture a screenshot of the Antigravity agent' },
     { command: 'help', description: 'Show available commands' },
     { command: 'cmd', description: 'Execute shell command /cmd <command>' },
     { command: 'ask', description: 'Send a message to the Antigravity agent chat' }
@@ -91,7 +91,7 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
 
         bot.help((ctx) => ctx.reply(
             '/start – Lấy Chat ID\n' +
-            '/screenshot – Chụp ảnh màn hình\n' +
+            '/screenshot – Chụp khung chat agent\n' +
             '/ask <nội dung> – Gửi câu hỏi tới Antigravity Agent\n' +
             '/cmd <lệnh> – Chạy lệnh trong terminal\n' +
             '/help – Hiển thị trợ giúp'
@@ -142,13 +142,23 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
         bot.command('screenshot', async (ctx) => {
             if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply('Unauthorized.'); return; }
             try {
-                await ctx.reply('Đang chụp màn hình...');
-                const imgPath = path.join(context.extensionPath, '_tmp_screenshot.jpg');
-                await screenshot({ filename: imgPath });
-                await ctx.replyWithPhoto({ source: fs.createReadStream(imgPath) });
-                fs.unlinkSync(imgPath);
+                await ctx.reply('Đang chụp khung agent...');
+                const port = getDebuggingPort();
+                const buffer = await captureAgentScreenshot(port);
+                await ctx.replyWithPhoto({ source: buffer });
             } catch (e: any) {
-                ctx.reply('Lỗi chụp ảnh: ' + e.message);
+                ctx.reply('Lỗi chụp ảnh agent: ' + e.message);
+
+                // Fallback to full screenshot if CDP fails
+                try {
+                    await ctx.reply('Đang thử chụp toàn màn hình...');
+                    const imgPath = path.join(context.extensionPath, '_tmp_screenshot.jpg');
+                    await screenshot({ filename: imgPath });
+                    await ctx.replyWithPhoto({ source: fs.createReadStream(imgPath) });
+                    fs.unlinkSync(imgPath);
+                } catch (fallbackErr: any) {
+                    ctx.reply('Lỗi chụp toàn màn hình: ' + fallbackErr.message);
+                }
             }
         });
 
