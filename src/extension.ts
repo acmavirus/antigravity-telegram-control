@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getSettingsHtml } from './settings_view';
 import { TelegramSettingsProvider } from './settings_provider';
-import { sendViaCDP } from './cdp_chat';
+import { sendViaCDP, waitForAgentResponse } from './cdp_chat';
 
 let bot: Telegraf | undefined;
 
@@ -105,7 +105,23 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             if (!query) { ctx.reply('Usage: /ask <nội dung cần hỏi agent>'); return; }
             try {
                 await sendToAgentChat(query);
-                ctx.reply(`✅ Đã gửi tới Antigravity Agent:\n"${query}"`);
+                ctx.reply(`✅ Đã gửi tới Antigravity Agent:\n"${query}"\n\n_Đang chờ agent trả lời..._`, { parse_mode: 'Markdown' });
+
+                // Spawn background task to check when generating completes
+                vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Antigravity Agent is thinking...",
+                    cancellable: false
+                }, async () => {
+                    const port = getDebuggingPort();
+                    const finished = await waitForAgentResponse(port);
+                    if (finished) {
+                        ctx.reply(`✅ Agent đã trả lời xong!`);
+                    } else {
+                        ctx.reply(`⚠️ Hết thời gian chờ chờ Agent trả lời.`);
+                    }
+                });
+
             } catch (e: any) {
                 ctx.reply('Lỗi: ' + e.message);
             }

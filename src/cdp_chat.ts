@@ -20,177 +20,232 @@ function httpGet(url: string): Promise<string> {
     });
 }
 
-/**
- * Send a CDP command over WebSocket and wait for a response with matching id.
- */
-function cdpSend(wsUrl: string, method: string, params: object = {}): Promise<any> {
-    return new Promise((resolve, reject) => {
-        const ws = new WebSocket(wsUrl);
-        const msgId = 1;
+class CdpClient {
+    private ws: import('ws');
+    private msgId = 1;
+    private pending = new Map<number, { resolve: Function, reject: Function }>();
 
-        ws.on('open', () => {
-            ws.send(JSON.stringify({ id: msgId, method, params }));
-        });
-
-        ws.on('message', (raw: Buffer | string) => {
+    constructor(wsUrl: string) {
+        this.ws = new WebSocket(wsUrl);
+        this.ws.on('message', (raw: Buffer | string) => {
             const msg = JSON.parse(raw.toString());
-            if (msg.id === msgId) {
-                ws.close();
-                if (msg.error) {
-                    reject(new Error(`CDP error: ${msg.error.message}`));
-                } else {
-                    resolve(msg.result);
-                }
+            if (msg.id && this.pending.has(msg.id)) {
+                const { resolve, reject } = this.pending.get(msg.id)!;
+                this.pending.delete(msg.id);
+                if (msg.error) reject(new Error(msg.error.message));
+                else resolve(msg.result);
             }
         });
+    }
 
-        ws.on('error', (err: Error) => { ws.close(); reject(err); });
-        const timer = setTimeout(() => { ws.close(); reject(new Error('CDP timeout after 8s')); }, 8000);
-        ws.on('close', () => clearTimeout(timer));
-    });
+    async connect(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.ws.on('open', resolve);
+            this.ws.on('error', reject);
+        });
+    }
+
+    async send(method: string, params: object = {}): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const id = this.msgId++;
+            this.pending.set(id, { resolve, reject });
+            this.ws.send(JSON.stringify({ id, method, params }));
+            setTimeout(() => {
+                if (this.pending.has(id)) {
+                    this.pending.delete(id);
+                    reject(new Error(`Timeout waiting for CDP response (${method})`));
+                }
+            }, 3000);
+        });
+    }
+
+    close() {
+        this.ws.close();
+    }
 }
 
 /**
- * Find the best workbench target — prefer the project window (not Extension Development Host, not Launchpad).
+ * Main export — search ALL possible page/iframe targets and inject the chat message using native input emulation.
  */
-async function findWorkbenchTarget(port: number): Promise<CdpTarget> {
+export async function sendViaCDP(text: string, port: number): Promise<void> {
     const raw = await httpGet(`http://127.0.0.1:${port}/json`);
     const targets: CdpTarget[] = JSON.parse(raw);
 
-    // Filter to page targets with workbench.html URL
-    const pages = targets.filter(t =>
-        t.type === 'page' &&
-        t.url.includes('workbench.html') &&
-        t.webSocketDebuggerUrl
+    // Filter to any target that could reasonably host the chat UI
+    const candidates = targets.filter(t =>
+        (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
+        t.webSocketDebuggerUrl &&
+        !t.url.includes('devtools://')
     );
 
-    if (pages.length === 0) {
-        const all = targets.map(t => `${t.title} (${t.type})`).join(', ');
-        throw new Error(`No workbench page found.\nAvailable targets: ${all}`);
-    }
+    let allDebugs: string[] = [];
 
-    // Prefer the non-development-host window
-    const mainPage = pages.find(t => !t.title.includes('Extension Development Host')) ?? pages[0];
-    return mainPage;
-}
-
-/**
- * Inject text into the Antigravity agent chat and submit.
- * Tries multiple selectors specific to Antigravity IDE.
- */
-async function injectIntoChat(wsUrl: string, text: string): Promise<{ ok: boolean; method: string; error?: string }> {
-    const escaped = text
-        .replace(/\\/g, '\\\\')
-        .replace(/`/g, '\\`')
-        .replace(/\$/g, '\\$');
-
-    // JS expression to inject — tries all known Antigravity/VS Code chat selectors
-    const expression = `
-(async () => {
-    const text = \`${escaped}\`;
-
-    // Helper: dispatch a native React/Monaco-friendly input event
-    function setNativeValue(el, value) {
+    for (const target of candidates) {
         try {
-            const proto = Object.getPrototypeOf(el);
-            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-            if (setter) setter.call(el, value);
-            else el.value = value;
-        } catch(e) { el.value = value; }
-    }
+            const client = new CdpClient(target.webSocketDebuggerUrl!);
+            await client.connect();
 
-    function triggerInput(el) {
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-    }
+            // 1. Send the evaluation script that mimics the phone chat's logic
+            const focusResult = await client.send('Runtime.evaluate', {
+                expression: `
+                    (async function() {
+                        const escapedText = ${JSON.stringify(text)};
+                        
+                        // Look specifically for the contenteditable used by the chat input
+                        const editors = [...document.querySelectorAll('#conversation [contenteditable="true"], #chat [contenteditable="true"], #cascade [contenteditable="true"], .chat-input [contenteditable="true"], .interactive-input-editor [contenteditable="true"], textarea')]
+                            .filter(el => el.offsetParent !== null && !el.className.includes('xterm'));
+                        
+                        const editor = editors.at(-1);
+                        if (!editor) return { found: false, error: "editor_not_found" };
 
-    function pressEnter(el) {
-        ['keydown','keypress','keyup'].forEach(type => {
-            el.dispatchEvent(new KeyboardEvent(type, {
-                key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true
-            }));
-        });
-    }
+                        editor.focus();
+                        
+                        // Clear existing text securely
+                        try {
+                            document.execCommand("selectAll", false, null);
+                            document.execCommand("delete", false, null);
+                        } catch(e) {}
 
-    // ── Antigravity / VS Code Chat selectors (ordered by specificity) ────────
-    const selectors = [
-        // Antigravity Launchpad / Jetski agent chat
-        '.jetski-chat-input textarea',
-        '.jetski-input textarea',
-        '.agent-chat-input textarea',
-        '.aichat-input textarea',
-        // VS Code built-in chat (Copilot, etc.)
-        '.interactive-input-editor .inputarea',
-        '.chat-input-editor .inputarea',
-        // Generic Monaco inputarea in a chat-like container
-        '.chat-widget .inputarea',
-        '.interactive-session .inputarea',
-        // Plain textarea fallbacks
-        '.jetski-chat-input input[type=text]',
-        '.chat-input input[type=text]',
-    ];
+                        // Try to insert text securely
+                        let inserted = false;
+                        try { 
+                            inserted = !!document.execCommand("insertText", false, escapedText); 
+                        } catch(e) {}
+                        
+                        // Fallback insertion (triggers React state updates)
+                        if (!inserted) {
+                            if (editor.tagName === 'TEXTAREA') {
+                                // For textareas (monaco fallback)
+                                const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+                                if (setter) setter.call(editor, escapedText);
+                                else editor.value = escapedText;
+                            } else {
+                                // For contenteditable
+                                editor.textContent = escapedText;
+                            }
+                            
+                            // Emulate input events to wake up React onChange handlers
+                            editor.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText", data: escapedText }));
+                            editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: escapedText }));
+                            editor.dispatchEvent(new Event("change", { bubbles: true }));
+                        }
 
-    for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (!el) continue;
+                        // Wait for React to render the submit button
+                        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+                        await new Promise(r => setTimeout(r, 100));
 
-        el.focus();
+                        // Find the submit button natively
+                        const submit = document.querySelector("svg.lucide-arrow-right, svg[class*='arrow-right'], svg[class*='send']")?.closest("button");
+                        if (submit && !submit.disabled) {
+                            submit.click();
+                            return { found: true, method: "click_submit" };
+                        }
 
-        if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-            setNativeValue(el, text);
-            triggerInput(el);
-            await new Promise(r => setTimeout(r, 100));
-            pressEnter(el);
-            return { ok: true, method: sel };
+                        // Submit via Enter key if button not found or disabled
+                        ['keydown', 'keypress', 'keyup'].forEach(type => {
+                            editor.dispatchEvent(new KeyboardEvent(type, { 
+                                bubbles: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 
+                            }));
+                        });
+                        
+                        return { found: true, method: "enter_keypress" };
+                    })()
+                `,
+                awaitPromise: true,
+                returnByValue: true
+            });
+
+            const val = focusResult?.result?.value;
+
+            if (val && val.found) {
+                // The JS injected successfully triggered the submit button or Enter key.
+                // We'll also fire CDP Input events just to be 100% sure it submits!
+
+                await new Promise(r => setTimeout(r, 50));
+
+                try {
+                    await client.send('Input.dispatchKeyEvent', {
+                        type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13
+                    });
+                    await client.send('Input.dispatchKeyEvent', {
+                        type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13
+                    });
+                } catch (e) { /* ignore CDP input error if JS already submitted */ }
+
+                client.close();
+                return;
+            } else {
+                client.close();
+                allDebugs.push(`[${target.type}] ${target.title}: ${val?.error || 'No chat input element found'}`);
+            }
+        } catch (e: any) {
+            allDebugs.push(`[${target.type}] ${target.title}: Error ${e.message}`);
         }
-
-        // Monaco .inputarea (contenteditable-like hidden textarea)
-        if (el.classList.contains('inputarea')) {
-            setNativeValue(el, text);
-            triggerInput(el);
-            await new Promise(r => setTimeout(r, 150));
-            pressEnter(el);
-            return { ok: true, method: 'monaco:' + sel };
-        }
     }
 
-    // Dump all textareas/inputs for debugging
-    const allInputs = [...document.querySelectorAll('textarea, input[type=text]')]
-        .map(el => el.className + ' | placeholder=' + el.getAttribute('placeholder'))
-        .slice(0, 10);
-
-    return { ok: false, method: 'none', error: 'No selector matched. Found inputs: ' + JSON.stringify(allInputs) };
-})()
-`;
-
-    const result = await cdpSend(wsUrl, 'Runtime.evaluate', {
-        expression,
-        awaitPromise: true,
-        returnByValue: true
-    });
-
-    if (result?.exceptionDetails) {
-        const msg = result.exceptionDetails.exception?.description || result.exceptionDetails.text;
-        return { ok: false, method: 'exception', error: msg };
-    }
-
-    return result?.result?.value ?? { ok: false, method: 'no_result' };
+    const debugInfo = allDebugs.length > 0 ? "\\nDetails: " + allDebugs.slice(0, 4).join("\\n") : "";
+    throw new Error("Không tìm thấy ô chat để truyền type." + debugInfo);
 }
 
 /**
- * Main export — find the workbench window and inject the chat message.
+ * Polls the Antigravity chat input UI to determine when the agent has finished generating.
+ * It does this by checking if the "stop" square button turns back into the "send" right arrow.
  */
-export async function sendViaCDP(text: string, port: number): Promise<void> {
-    const target = await findWorkbenchTarget(port);
+export async function waitForAgentResponse(port: number, timeoutMs = 300000): Promise<boolean> {
+    const raw = await httpGet(`http://127.0.0.1:${port}/json`);
+    const targets: CdpTarget[] = JSON.parse(raw);
 
-    if (!target.webSocketDebuggerUrl) {
-        throw new Error('Target has no webSocketDebuggerUrl');
+    const candidates = targets.filter(t =>
+        (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
+        t.webSocketDebuggerUrl &&
+        !t.url.includes('devtools://')
+    );
+
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
+        for (const target of candidates) {
+            try {
+                const client = new CdpClient(target.webSocketDebuggerUrl!);
+                await client.connect();
+
+                const checkResult = await client.send('Runtime.evaluate', {
+                    expression: `
+                        (function() {
+                            // Check for generating state (stop button)
+                            const isGenerating = !!document.querySelector("svg.lucide-square, [data-tooltip-id='input-send-button-cancel-tooltip']");
+                            
+                            // Check for idle state (send arrow)
+                            const isIdle = !!document.querySelector("svg.lucide-arrow-right, svg[class*='arrow-right'], svg[class*='send']");
+                            
+                            // Check if the chat input area even exists here
+                            const hasChat = !!document.querySelector('#conversation, #chat, #cascade, .chat-input, .interactive-input-editor');
+
+                            return { hasChat, isGenerating, isIdle };
+                        })()
+                    `,
+                    returnByValue: true
+                });
+
+                client.close();
+
+                const val = checkResult?.result?.value;
+                if (val && val.hasChat) {
+                    // If it's no longer generating and is idle, we are done!
+                    if (!val.isGenerating && val.isIdle) {
+                        return true;
+                    }
+                    // If it has chat but is still generating, wait more.
+                    break;
+                }
+            } catch (e: any) {
+                // Ignore connection errors during polling
+            }
+        }
+
+        // Wait 2 seconds before checking again
+        await new Promise(r => setTimeout(r, 2000));
     }
 
-    const result = await injectIntoChat(target.webSocketDebuggerUrl, text);
-
-    if (!result.ok) {
-        const debugInfo = result.error ? `\nDebug: ${result.error}` : '';
-        throw new Error(`CDP: ô chat không tìm thấy (method=${result.method})${debugInfo}`);
-    }
+    return false; // Timed out
 }
