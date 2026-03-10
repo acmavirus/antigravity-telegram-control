@@ -2,8 +2,9 @@
     "name": "antigravity-telegram-control",
     "displayName": "Antigravity Telegram Control",
     "description": "Control Antigravity Agent via Telegram and take screenshots.",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "publisher": "acmatvjrus",
+    "icon": "resources/logo.png",
     "engines": {
         "vscode": "^1.75.0"
     },
@@ -38,7 +39,7 @@
                 {
                     "id": "telegram-control",
                     "title": "Telegram Control",
-                    "icon": "$(broadcast)"
+                    "icon": "resources/activity-bar.svg"
                 }
             ]
         },
@@ -69,6 +70,11 @@
                     "type": "number",
                     "default": 9222,
                     "description": "VS Code / Antigravity IDE remote debugging port (launch IDE with --remote-debugging-port=9222)"
+                },
+                "antigravityTelegramControl.language": {
+                    "type": "string",
+                    "default": "en",
+                    "description": "Language for Telegram bot messages"
                 }
             }
         }

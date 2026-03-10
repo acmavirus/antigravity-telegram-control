@@ -33,6 +33,7 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                     await config.update('botToken', data.token, vscode.ConfigurationTarget.Global);
                     await config.update('allowedChatId', data.chatId, vscode.ConfigurationTarget.Global);
                     await config.update('debuggingPort', data.debuggingPort ?? 9222, vscode.ConfigurationTarget.Global);
+                    await config.update('language', data.language || 'en', vscode.ConfigurationTarget.Global);
                     vscode.window.showInformationMessage('Telegram Settings Saved!');
 
                     // Restart bot
@@ -53,7 +54,8 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
             const token = config.get<string>('botToken') || '';
             const chatId = config.get<string>('allowedChatId') || '';
             const port = config.get<number>('debuggingPort') ?? 9222;
-            this._view.webview.html = getSettingsHtml(token, chatId, port);
+            const language = config.get<string>('language') || 'en';
+            this._view.webview.html = getSettingsHtml(token, chatId, port, language);
         }
     }
 }

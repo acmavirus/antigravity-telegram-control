@@ -1,6 +1,28 @@
 import * as vscode from 'vscode';
 
-export function getSettingsHtml(token: string, chatId: string, debuggingPort: number = 9222): string {
+export function getSettingsHtml(token: string, chatId: string, debuggingPort: number = 9222, language: string = 'en'): string {
+    const languages = [
+        { code: 'en', name: 'English' },
+        { code: 'vi', name: 'Tiếng Việt' },
+        { code: 'zh', name: '中文' },
+        { code: 'es', name: 'Español' },
+        { code: 'fr', name: 'Français' },
+        { code: 'de', name: 'Deutsch' },
+        { code: 'ja', name: '日本語' },
+        { code: 'ko', name: '한국어' },
+        { code: 'ru', name: 'Русский' },
+        { code: 'pt', name: 'Português' },
+        { code: 'it', name: 'Italiano' },
+        { code: 'hi', name: 'हिन्दी' },
+        { code: 'tr', name: 'Türkçe' },
+        { code: 'ar', name: 'العربية' },
+        { code: 'id', name: 'Bahasa Indonesia' }
+    ];
+
+    const langOptions = languages.map(l => 
+        `<option value="${l.code}" ${l.code === language ? 'selected' : ''}>${l.name}</option>`
+    ).join('');
+
     return `
 <!DOCTYPE html>
 <html lang="en">
@@ -39,7 +61,7 @@ export function getSettingsHtml(token: string, chatId: string, debuggingPort: nu
             margin-bottom: 4px;
         }
 
-        input {
+        input, select {
             width: 100%;
             padding: 5px 8px;
             background: var(--vscode-input-background);
@@ -51,8 +73,13 @@ export function getSettingsHtml(token: string, chatId: string, debuggingPort: nu
             outline: none;
         }
 
-        input:focus {
+        input:focus, select:focus {
             border-color: var(--vscode-focusBorder);
+        }
+
+        select option {
+            background: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
         }
 
         button {
@@ -126,6 +153,13 @@ export function getSettingsHtml(token: string, chatId: string, debuggingPort: nu
         <input type="number" id="port" value="${debuggingPort}" placeholder="9222">
     </div>
 
+    <div class="field">
+        <label for="language">Language</label>
+        <select id="language">
+            ${langOptions}
+        </select>
+    </div>
+
     <button id="save">Save</button>
     <button id="register" class="secondary">Register Slash Commands</button>
     <div id="msg" class="msg">✓ Settings saved.</div>
@@ -149,7 +183,8 @@ export function getSettingsHtml(token: string, chatId: string, debuggingPort: nu
                 command: 'save',
                 token: document.getElementById('token').value,
                 chatId: document.getElementById('chatId').value,
-                debuggingPort: parseInt(document.getElementById('port').value) || 9222
+                debuggingPort: parseInt(document.getElementById('port').value) || 9222,
+                language: document.getElementById('language').value
             });
             const msg = document.getElementById('msg');
             msg.classList.add('show');

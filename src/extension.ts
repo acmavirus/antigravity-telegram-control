@@ -6,8 +6,24 @@ import * as path from 'path';
 import { getSettingsHtml } from './settings_view';
 import { TelegramSettingsProvider } from './settings_provider';
 import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot } from './cdp_chat';
+import { translations } from './i18n';
 
 let bot: Telegraf | undefined;
+
+function getLanguage(): string {
+    return vscode.workspace.getConfiguration('antigravityTelegramControl').get<string>('language') ?? 'en';
+}
+
+function t(key: keyof typeof translations['en'], params: Record<string, string> = {}): string {
+    const lang = getLanguage();
+    const tranSet = translations[lang] || translations['en'];
+    let text = tranSet[key] || translations['en'][key] || '';
+    
+    for (const [pk, pv] of Object.entries(params)) {
+        text = text.replace(`{${pk}}`, pv);
+    }
+    return text;
+}
 
 const SLASH_COMMANDS = [
     { command: 'start', description: 'Start the bot and get your Chat ID' },
@@ -86,7 +102,7 @@ async function sendToAgentChat(text: string): Promise<void> {
     // ── Strategy 3: clipboard fallback ───────────────────────────────────────
     await vscode.env.clipboard.writeText(text);
     try { await vscode.commands.executeCommand('workbench.action.chat.open'); } catch (_) { }
-    throw new Error(`CDP: ${cdpErrorMsg}\n\nNội dung đã copy vào clipboard — nhấn Ctrl+V trong chat.`);
+    throw new Error(t('error', { msg: `CDP: ${cdpErrorMsg}\n\nNội dung đã copy vào clipboard — nhấn Ctrl+V trong chat.` }));
 }
 
 // ─── Start bot ────────────────────────────────────────────────────────────────
@@ -95,12 +111,12 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
     const token = getToken();
 
     if (!token) {
-        vscode.window.showErrorMessage('Telegram: Bot Token chưa được cài đặt.');
+        vscode.window.showErrorMessage(t('invalidToken'));
         return;
     }
 
     if (bot) {
-        vscode.window.showWarningMessage('Telegram: Bot đang chạy rồi!');
+        vscode.window.showWarningMessage(t('botAlreadyRunning'));
         return;
     }
 
@@ -111,33 +127,26 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
 
         // ── Handlers ──
         bot.start((ctx) => ctx.reply(
-            `Bot đang hoạt động! Chat ID của bạn: \`${ctx.chat.id}\`\n\nGõ /help để xem lệnh.`,
+            t('welcome').replace('${id}', ctx.chat.id.toString()),
             { parse_mode: 'Markdown' }
         ));
 
-        bot.help((ctx) => ctx.reply(
-            '/start – Lấy Chat ID\n' +
-            '/screenshot – Chụp khung chat agent\n' +
-            '/ask <nội dung> – Gửi câu hỏi tới Antigravity Agent\n' +
-            '/check – Kiểm tra lại trạng thái hoàn tất của Agent\n' +
-            '/cmd <lệnh> – Chạy lệnh trong terminal\n' +
-            '/help – Hiển thị trợ giúp'
-        ));
+        bot.help((ctx) => ctx.reply(t('helpText')));
 
         bot.command('ask', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply('Unauthorized.'); return; }
+            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
             const parts = ctx.message.text.split(' ');
             parts.shift(); // remove /ask
             const query = parts.join(' ').trim();
-            if (!query) { ctx.reply('Usage: /ask <nội dung cần hỏi agent>'); return; }
+            if (!query) { ctx.reply(t('askUsage')); return; }
             try {
                 await sendToAgentChat(query);
-                ctx.reply(`✅ Đã gửi tới Antigravity Agent:\n"${query}"\n\n_Đang chờ agent trả lời..._`, { parse_mode: 'Markdown' });
+                ctx.reply(t('askSent', { query }), { parse_mode: 'Markdown' });
 
                 // Spawn background task to check when generating completes
                 vscode.window.withProgress({
                     location: vscode.ProgressLocation.Notification,
-                    title: "Antigravity Agent is thinking...",
+                    title: t('agentThinking'),
                     cancellable: false
                 }, async () => {
                     try {
@@ -146,73 +155,73 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
                         if (finished) {
                             try {
                                 const { buffer } = await captureAgentScreenshot(port);
-                                await ctx.replyWithPhoto({ source: buffer }, { caption: `✅ Agent đã trả lời xong!` });
+                                await ctx.replyWithPhoto({ source: buffer }, { caption: t('agentFinished') });
                             } catch (screenshotErr: any) {
-                                ctx.reply(`✅ Agent đã trả lời xong!\n(Không thể chụp ảnh: ${screenshotErr.message})`);
+                                ctx.reply(t('screenshotError', { msg: screenshotErr.message }));
                             }
                         } else {
-                            ctx.reply(`⚠️ Hết thời gian chờ Agent trả lời.`);
+                            ctx.reply(t('timeoutError'));
                         }
                     } catch (e: any) {
-                        ctx.reply(`❌ Lỗi theo dõi Agent: ${e.message}`);
+                        ctx.reply(t('trackingError', { msg: e.message }));
                     }
                 });
 
             } catch (e: any) {
-                ctx.reply('Lỗi: ' + e.message);
+                ctx.reply(t('error', { msg: e.message }));
             }
         });
 
         bot.command('check', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply('Unauthorized.'); return; }
+            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
             const port = getDebuggingPort();
-            await ctx.reply('🔍 Đang kiểm tra lại trạng thái Agent...');
+            await ctx.reply(t('checkingStatus'));
 
             try {
                 const finished = await waitForAgentResponse(port, 10000); // Check once fairly quickly
                 if (finished) {
                     const { buffer } = await captureAgentScreenshot(port);
-                    await ctx.replyWithPhoto({ source: buffer }, { caption: `✅ Agent đã hoàn tất!` });
+                    await ctx.replyWithPhoto({ source: buffer }, { caption: t('agentFinished') });
                 } else {
                     const { buffer } = await captureAgentScreenshot(port);
-                    await ctx.replyWithPhoto({ source: buffer }, { caption: `⏳ Agent vẫn đang xử lý hoặc chưa tìm thấy nút gửi.` });
+                    await ctx.replyWithPhoto({ source: buffer }, { caption: t('agentProcessing') });
                 }
             } catch (e: any) {
-                ctx.reply('Lỗi khi kiểm tra: ' + e.message);
+                ctx.reply(t('error', { msg: e.message }));
             }
         });
 
         bot.command('cmd', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply('Unauthorized.'); return; }
+            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
             const parts = ctx.message.text.split(' ');
             parts.shift(); // remove /cmd
             const cmd = parts.join(' ').trim();
-            if (!cmd) { ctx.reply('Usage: /cmd <lệnh>'); return; }
+            if (!cmd) { ctx.reply(t('cmdUsage')); return; }
             const terminal = vscode.window.activeTerminal ?? vscode.window.createTerminal('Telegram');
             terminal.show();
             terminal.sendText(cmd);
-            ctx.reply(`✅ Đã chạy: ${cmd}`);
+            ctx.reply(t('cmdExecuted', { cmd }));
         });
 
         bot.command('screenshot', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply('Unauthorized.'); return; }
+            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
             try {
-                await ctx.reply('Đang chụp khung agent...');
+                await ctx.reply(t('capturingFrame'));
                 const port = getDebuggingPort();
                 const { buffer } = await captureAgentScreenshot(port);
                 await ctx.replyWithPhoto({ source: buffer });
             } catch (e: any) {
-                ctx.reply('Lỗi chụp ảnh agent: ' + e.message);
+                ctx.reply(t('error', { msg: e.message }));
 
                 // Fallback to full screenshot if CDP fails
                 try {
-                    await ctx.reply('Đang thử chụp toàn màn hình...');
+                    await ctx.reply(t('capturingFull'));
                     const imgPath = path.join(context.extensionPath, '_tmp_screenshot.jpg');
                     await screenshot({ filename: imgPath });
                     await ctx.replyWithPhoto({ source: fs.createReadStream(imgPath) });
                     fs.unlinkSync(imgPath);
                 } catch (fallbackErr: any) {
-                    ctx.reply('Lỗi chụp toàn màn hình: ' + fallbackErr.message);
+                    ctx.reply(t('error', { msg: fallbackErr.message }));
                 }
             }
         });
@@ -233,24 +242,23 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             console.log('[Telegram] Bot polling started.');
         }).catch(err => {
             console.error('[Telegram] Bot launch failed:', err);
-            vscode.window.showErrorMessage('Lỗi khởi động bot: ' + err.message);
+            vscode.window.showErrorMessage(t('error', { msg: err.message }));
             bot = undefined;
         });
 
-        vscode.window.showInformationMessage('✅ Telegram Bot đã khởi động!');
+        vscode.window.showInformationMessage(t('botStarted'));
 
     } catch (err: any) {
         bot = undefined;
         console.error('[Telegram] startBot fatal error:', err);
-        vscode.window.showErrorMessage('Không thể khởi động bot: ' + err.message);
+        vscode.window.showErrorMessage(t('error', { msg: err.message }));
     }
 }
 
 function stopBot(): void {
-    if (!bot) { vscode.window.showWarningMessage('Bot chưa chạy.'); return; }
+    if (!bot) { return; }
     bot.stop('SIGINT');
     bot = undefined;
-    vscode.window.showInformationMessage('Telegram Bot đã dừng.');
 }
 
 // ─── Activate ─────────────────────────────────────────────────────────────────
@@ -274,13 +282,20 @@ export function activate(context: vscode.ExtensionContext) {
                 { enableScripts: true }
             );
             const cfg = vscode.workspace.getConfiguration('antigravityTelegramControl');
-            panel.webview.html = getSettingsHtml(cfg.get('botToken') ?? '', cfg.get('allowedChatId') ?? '', cfg.get('debuggingPort') ?? 9222);
+            panel.webview.html = getSettingsHtml(
+                cfg.get('botToken') ?? '', 
+                cfg.get('allowedChatId') ?? '', 
+                cfg.get('debuggingPort') ?? 9222,
+                cfg.get('language') ?? 'en'
+            );
             panel.webview.onDidReceiveMessage(async (msg) => {
                 if (msg.command === 'save') {
                     await cfg.update('botToken', msg.token, vscode.ConfigurationTarget.Global);
                     await cfg.update('allowedChatId', msg.chatId, vscode.ConfigurationTarget.Global);
                     await cfg.update('debuggingPort', msg.debuggingPort ?? 9222, vscode.ConfigurationTarget.Global);
-                    vscode.window.showInformationMessage('Settings saved.');
+                    await cfg.update('language', msg.language ?? 'en', vscode.ConfigurationTarget.Global);
+                    
+                    vscode.window.showInformationMessage(t('settingsSaved'));
                     stopBot();
                     startBot(context);
                 }
@@ -296,7 +311,7 @@ export function activate(context: vscode.ExtensionContext) {
             const token = manualToken || getToken();
             const chatId = manualChatId || getAllowedChatId();
             if (!token) {
-                vscode.window.showErrorMessage('Bot Token chưa được cài đặt! Hãy nhập token và nhấn Save trước.');
+                vscode.window.showErrorMessage(t('invalidToken'));
                 return;
             }
 
@@ -307,14 +322,14 @@ export function activate(context: vscode.ExtensionContext) {
             }, async () => {
                 try {
                     await registerSlashCommands(token, chatId);
-                    vscode.window.showInformationMessage('✅ Slash commands đã được đăng ký thành công trên Telegram!');
+                    vscode.window.showInformationMessage('✅ Slash commands registered successfully!');
                     // Restart bot if token came from the UI but wasn't saved yet
                     if (manualToken) {
                         stopBot();
                         startBot(context);
                     }
                 } catch (e: any) {
-                    vscode.window.showErrorMessage('Đăng ký thất bại: ' + e.message);
+                    vscode.window.showErrorMessage(t('error', { msg: e.message }));
                 }
             });
         })
