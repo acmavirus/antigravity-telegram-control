@@ -2,15 +2,17 @@
     "name": "antigravity-telegram-control",
     "displayName": "Antigravity Telegram Control",
     "description": "Control Antigravity Agent via Telegram and take screenshots.",
-    "version": "0.0.1",
-    "publisher": "acmavirus",
+    "version": "0.0.2",
+    "publisher": "acmatvjrus",
     "engines": {
         "vscode": "^1.75.0"
     },
     "categories": [
         "Other"
     ],
-    "activationEvents": [],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
     "main": "./out/extension.js",
     "contributes": {
         "commands": [

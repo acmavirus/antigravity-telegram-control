@@ -105,6 +105,7 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
     }
 
     try {
+        console.log('[Telegram] Starting bot...');
         bot = new Telegraf(token);
         const allowedChatId = getAllowedChatId();
 
@@ -144,7 +145,7 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
                         const finished = await waitForAgentResponse(port);
                         if (finished) {
                             try {
-                                const buffer = await captureAgentScreenshot(port);
+                                const { buffer } = await captureAgentScreenshot(port);
                                 await ctx.replyWithPhoto({ source: buffer }, { caption: `✅ Agent đã trả lời xong!` });
                             } catch (screenshotErr: any) {
                                 ctx.reply(`✅ Agent đã trả lời xong!\n(Không thể chụp ảnh: ${screenshotErr.message})`);
@@ -170,10 +171,10 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             try {
                 const finished = await waitForAgentResponse(port, 10000); // Check once fairly quickly
                 if (finished) {
-                    const buffer = await captureAgentScreenshot(port);
+                    const { buffer } = await captureAgentScreenshot(port);
                     await ctx.replyWithPhoto({ source: buffer }, { caption: `✅ Agent đã hoàn tất!` });
                 } else {
-                    const buffer = await captureAgentScreenshot(port);
+                    const { buffer } = await captureAgentScreenshot(port);
                     await ctx.replyWithPhoto({ source: buffer }, { caption: `⏳ Agent vẫn đang xử lý hoặc chưa tìm thấy nút gửi.` });
                 }
             } catch (e: any) {
@@ -198,7 +199,7 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             try {
                 await ctx.reply('Đang chụp khung agent...');
                 const port = getDebuggingPort();
-                const buffer = await captureAgentScreenshot(port);
+                const { buffer } = await captureAgentScreenshot(port);
                 await ctx.replyWithPhoto({ source: buffer });
             } catch (e: any) {
                 ctx.reply('Lỗi chụp ảnh agent: ' + e.message);
@@ -222,19 +223,25 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             vscode.window.showInformationMessage(`[Telegram] ${ctx.message.text}`);
         });
 
-        // ── Register slash commands (BEFORE launch, using static Telegram class) ──
-        try {
-            await registerSlashCommands(token, allowedChatId);
-        } catch (e: any) {
-            console.warn('setMyCommands failed:', e.message);
-        }
+        // ── Register slash commands (Background, don't block launch) ──
+        registerSlashCommands(token, allowedChatId).catch(e => {
+            console.warn('[Telegram] Slash command registration failed:', e.message);
+        });
 
-        // ── Launch (intentionally NOT awaited — blocks forever) ──
-        bot.launch();
+        // ── Launch ──
+        bot.launch().then(() => {
+            console.log('[Telegram] Bot polling started.');
+        }).catch(err => {
+            console.error('[Telegram] Bot launch failed:', err);
+            vscode.window.showErrorMessage('Lỗi khởi động bot: ' + err.message);
+            bot = undefined;
+        });
+
         vscode.window.showInformationMessage('✅ Telegram Bot đã khởi động!');
 
     } catch (err: any) {
         bot = undefined;
+        console.error('[Telegram] startBot fatal error:', err);
         vscode.window.showErrorMessage('Không thể khởi động bot: ' + err.message);
     }
 }

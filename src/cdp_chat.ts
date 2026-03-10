@@ -188,10 +188,94 @@ export async function sendViaCDP(text: string, port: number): Promise<void> {
 }
 
 /**
- * Captures a screenshot of the agent chat area using CDP.
- * Returns the screenshot as a Buffer.
+ * Deep search querySelector helper that traverses Shadow DOM.
  */
-export async function captureAgentScreenshot(port: number): Promise<Buffer> {
+const SCROLL_INJECTION_JS = `
+    async function querySelectorDeep(selector, root = document) {
+        const el = root.querySelector(selector);
+        if (el) return el;
+        const all = root.querySelectorAll('*');
+        for (const node of all) {
+            if (node.shadowRoot) {
+                const found = await querySelectorDeep(selector, node.shadowRoot);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    async function performDeepScroll() {
+        try {
+            // 1. Find main chat container
+            const selectors = [
+                '#conversation', '#chat', '#cascade', 
+                '.chat-container', '.messages-container', 
+                '[class*="message-list"]', '[class*="Conversation"]'
+            ];
+            
+            let targetEl = null;
+            for (const s of selectors) {
+                targetEl = await querySelectorDeep(s);
+                if (targetEl && targetEl.offsetParent !== null) break;
+            }
+
+            if (!targetEl) targetEl = document.body;
+
+            // 2. Scroll Logic
+            function scrollAllAncestors(el) {
+                let curr = el;
+                while (curr) {
+                    if (curr.scrollHeight > curr.clientHeight) {
+                        curr.scrollTop = curr.scrollHeight + 5000;
+                    }
+                    curr = curr.parentElement || (curr.parentNode && curr.parentNode.host);
+                }
+            }
+
+            // A. Scroll from target
+            scrollAllAncestors(targetEl);
+
+            // B. Find last message item
+            const lastMsg = await querySelectorDeep('.message:last-child, .chat-item:last-child, [class*="item"]:last-child, .conversation-item:last-child');
+            if (lastMsg) {
+                lastMsg.scrollIntoView({ behavior: 'instant', block: 'end' });
+                scrollAllAncestors(lastMsg);
+            }
+
+            // C. Global scroller hunt
+            const allDivs = document.querySelectorAll('div');
+            for (const d of allDivs) {
+                const style = window.getComputedStyle(d);
+                if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && d.scrollHeight > d.clientHeight) {
+                    d.scrollTop = d.scrollHeight + 5000;
+                }
+            }
+
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, 500)); 
+            return { success: true };
+        } catch(e) {
+            return { success: false, error: e.message };
+        }
+    }
+`;
+
+/**
+ * Reusable function to trigger the deep scroll logic in a target webview.
+ */
+export async function autoScrollToBottom(client: CdpClient): Promise<void> {
+    await client.send('Runtime.evaluate', {
+        expression: `(async function() { ${SCROLL_INJECTION_JS}; return await performDeepScroll(); })()`,
+        awaitPromise: true,
+        returnByValue: true
+    });
+}
+
+/**
+ * Captures a screenshot of the agent chat area using CDP.
+ * Returns the screenshot Buffer and diagnostic metadata.
+ */
+export async function captureAgentScreenshot(port: number): Promise<{ buffer: Buffer, metadata: string }> {
     let raw;
     try {
         raw = await httpGet(`http://127.0.0.1:${port}/json`);
@@ -200,11 +284,19 @@ export async function captureAgentScreenshot(port: number): Promise<Buffer> {
     }
 
     const targets: CdpTarget[] = JSON.parse(raw);
-    const candidates = targets.filter(t =>
+    let candidates = targets.filter(t =>
         (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
         t.webSocketDebuggerUrl &&
         !t.url.includes('devtools://')
     );
+
+    // ── ƯU TIÊN TARGET ĐÚNG ──
+    // Ưu tiên các target có title chứa "antigravity-telegram-control" như user đã chỉ ra
+    candidates.sort((a, b) => {
+        const aMatch = a.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        const bMatch = b.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        return bMatch - aMatch;
+    });
 
     let logs: string[] = [];
 
@@ -213,41 +305,43 @@ export async function captureAgentScreenshot(port: number): Promise<Buffer> {
             const client = new CdpClient(target.webSocketDebuggerUrl!);
             await client.connect();
 
+            // ── BẮT BUỘC CUỘN XUỐNG TRƯỚC ──
+            await autoScrollToBottom(client);
+
             const boxResult = await client.send('Runtime.evaluate', {
                 expression: `
-                    (function() {
-                        // Tìm các phần tử chứa chat (giống logic của sendViaCDP)
+                    (async function() {
+                        ${SCROLL_INJECTION_JS}
+                        
                         const selectors = [
-                            '#conversation', 
-                            '#chat', 
-                            '#cascade', 
-                            '.chat-input', 
-                            '.interactive-input-editor',
-                            '.chat-container'
+                            '#conversation', '#chat', '#cascade', 
+                            '.chat-container', '.messages-container', 
+                            '[class*="message-list"]', '[class*="Conversation"]'
                         ];
                         
+                        let foundSelector = "none";
                         let targetEl = null;
                         for (const s of selectors) {
-                            const el = document.querySelector(s);
-                            // Kiểm tra xem phần tử có đang hiển thị không
-                            if (el && el.offsetParent !== null) {
-                                targetEl = el;
+                            targetEl = await querySelectorDeep(s);
+                            if (targetEl && targetEl.offsetParent !== null) {
+                                foundSelector = s;
                                 break;
                             }
                         }
 
-                        if (!targetEl) return { error: "not_found" };
+                        if (!targetEl) targetEl = document.body;
 
-                        // Cố gắng lấy khung bao quanh (thường là body hoặc container chính của webview)
-                        // Nếu targetEl quá nhỏ (ví dụ chỉ là ô input), lấy cha của nó
                         let captureEl = targetEl;
-                        if (targetEl.offsetHeight < 100) {
-                            captureEl = targetEl.parentElement || targetEl;
-                        }
+                        let captureType = foundSelector === "none" ? "body" : "selector";
                         
-                        // Nếu vẫn nhỏ, lấy body để đảm bảo thấy được nội dung
-                        if (captureEl.offsetHeight < 200) {
-                            captureEl = document.body;
+                        if (targetEl === document.body || targetEl.offsetHeight < 300) {
+                            const scrollers = Array.from(document.querySelectorAll('div'))
+                                .filter(d => d.offsetHeight > 400 && d.offsetParent !== null)
+                                .sort((a, b) => b.offsetHeight - a.offsetHeight);
+                            if (scrollers.length > 0) {
+                                captureEl = scrollers[0];
+                                captureType = "largest-scroller";
+                            }
                         }
 
                         const rect = captureEl.getBoundingClientRect();
@@ -256,16 +350,19 @@ export async function captureAgentScreenshot(port: number): Promise<Buffer> {
                             y: rect.y,
                             width: rect.width || document.documentElement.clientWidth,
                             height: rect.height || document.documentElement.clientHeight,
-                            title: document.title
+                            title: document.title,
+                            url: window.location.href,
+                            selector: foundSelector,
+                            captureType: captureType
                         };
                     })()
                 `,
+                awaitPromise: true,
                 returnByValue: true
             });
 
             const res = boxResult?.result?.value;
             if (res && !res.error) {
-                // Chụp ảnh vùng đã tìm thấy
                 const screenshotResult = await client.send('Page.captureScreenshot', {
                     format: 'jpeg',
                     quality: 90,
@@ -280,7 +377,11 @@ export async function captureAgentScreenshot(port: number): Promise<Buffer> {
 
                 client.close();
                 if (screenshotResult && screenshotResult.data) {
-                    return Buffer.from(screenshotResult.data, 'base64');
+                    const metadata = `Target: ${res.title}\\nSelector: ${res.selector}\\nType: ${res.captureType}\\nURL: ${res.url.substring(0, 50)}...`;
+                    return {
+                        buffer: Buffer.from(screenshotResult.data, 'base64'),
+                        metadata: metadata
+                    };
                 }
             } else {
                 logs.push(`${target.title}: ${res?.error || 'no_res'}`);
@@ -291,22 +392,27 @@ export async function captureAgentScreenshot(port: number): Promise<Buffer> {
         }
     }
 
-    throw new Error(`Không tìm thấy khung chat đang hiển thị. (Chi tiết: ${logs.join(', ')})`);
+    throw new Error(`Không tìm thấy khung chat hiển thị để chụp. (Chi tiết: ${logs.join(', ')})`);
 }
 
 /**
  * Polls the Antigravity chat input UI to determine when the agent has finished generating.
- * It does this by checking if the "stop" square button turns back into the "send" right arrow.
  */
 export async function waitForAgentResponse(port: number, timeoutMs = 450000): Promise<boolean> {
     const raw = await httpGet(`http://127.0.0.1:${port}/json`);
     const targets: CdpTarget[] = JSON.parse(raw);
-
-    const candidates = targets.filter(t =>
+    let candidates = targets.filter(t =>
         (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
         t.webSocketDebuggerUrl &&
         !t.url.includes('devtools://')
     );
+
+    // ── ƯU TIÊN TARGET ĐÚNG ──
+    candidates.sort((a, b) => {
+        const aMatch = a.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        const bMatch = b.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        return bMatch - aMatch;
+    });
 
     const startTime = Date.now();
     let consecutiveIdleCount = 0;
@@ -324,19 +430,13 @@ export async function waitForAgentResponse(port: number, timeoutMs = 450000): Pr
                 const checkResult = await client.send('Runtime.evaluate', {
                     expression: `
                         (function() {
-                            // 1. Trạng thái đang chạy (có nút Stop/Square)
                             const stopIcon = document.querySelector("svg.lucide-square, [data-tooltip-id*='cancel'], [aria-label*='Stop'], [title*='Stop']");
                             const isGenerating = !!stopIcon;
-                            
-                            // 2. Trạng thái chờ (có nút Send/Arrow)
                             const sendIcon = document.querySelector("svg.lucide-arrow-right, svg[class*='arrow-right'], svg[class*='send'], [aria-label*='Send'], [title*='Send']");
-                            
-                            // 3. Kiểm tra xem ô input có đang bị disable không
                             const editor = document.querySelector('[contenteditable="true"], textarea');
                             const isInputDisabled = editor ? (editor.getAttribute('contenteditable') === 'false' || editor.disabled) : false;
 
                             const isIdle = !!sendIcon && !isGenerating && !isInputDisabled;
-                            
                             const hasChat = !!document.querySelector('#conversation, #chat, #cascade, .chat-input, .interactive-input-editor');
 
                             return { hasChat, isGenerating, isIdle };
@@ -345,40 +445,33 @@ export async function waitForAgentResponse(port: number, timeoutMs = 450000): Pr
                     returnByValue: true
                 });
 
-                client.close();
-
                 const val = checkResult?.result?.value;
                 if (val && val.hasChat) {
                     foundChatInThisLoop = true;
-                    if (val.isGenerating) {
-                        isGeneratingInThisLoop = true;
+                    if (val.isGenerating) isGeneratingInThisLoop = true;
+                    if (val.isIdle && !val.isGenerating) isIdleInThisLoop = true;
+
+                    // ── NẾU ĐÃ XONG, CUỘN XUỐNG LUÔN ──
+                    if (isIdleInThisLoop && !isGeneratingInThisLoop) {
+                        await autoScrollToBottom(client);
                     }
-                    if (val.isIdle && !val.isGenerating) {
-                        isIdleInThisLoop = true;
-                    }
-                    // Once we find the active chat webview, we stick with its state
+
+                    client.close();
                     break;
                 }
-            } catch (e: any) {
-                // Ignore connection errors
-            }
+                client.close();
+            } catch (e: any) { }
         }
 
         if (foundChatInThisLoop) {
             if (isIdleInThisLoop && !isGeneratingInThisLoop) {
                 consecutiveIdleCount++;
-                // Require 2 consecutive "idle" checks (approx 4 seconds) to be sure
-                if (consecutiveIdleCount >= 2) {
-                    return true;
-                }
+                if (consecutiveIdleCount >= 2) return true;
             } else {
                 consecutiveIdleCount = 0;
             }
         }
-
-        // Wait 2 seconds before checking again
         await new Promise(r => setTimeout(r, 2000));
     }
-
-    return false; // Timed out
+    return false;
 }
