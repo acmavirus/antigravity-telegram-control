@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getSettingsHtml } from './settings_view';
 import { TelegramSettingsProvider } from './settings_provider';
-import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot } from './cdp_chat';
+import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot, stopAgent } from './cdp_chat';
 import { translations } from './i18n';
 
 let bot: Telegraf | undefined;
@@ -31,7 +31,9 @@ const SLASH_COMMANDS = [
     { command: 'help', description: 'Show available commands' },
     { command: 'cmd', description: 'Execute shell command /cmd <command>' },
     { command: 'ask', description: 'Send a message to the Antigravity agent chat' },
-    { command: 'check', description: 'Manually check if the agent has finished responding' }
+    { command: 'check', description: 'Manually check if the agent has finished responding' },
+    { command: 'stop', description: 'Stop the agent if it is currently generating' },
+    { command: 'alarm', description: 'Notify when Agent finishes responding (Long-poll)' }
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -104,6 +106,8 @@ async function sendToAgentChat(text: string): Promise<void> {
     try { await vscode.commands.executeCommand('workbench.action.chat.open'); } catch (_) { }
     throw new Error(t('error', { msg: `CDP: ${cdpErrorMsg}\n\nNội dung đã copy vào clipboard — nhấn Ctrl+V trong chat.` }));
 }
+
+const activeAlarms = new Set<string>();
 
 // ─── Start bot ────────────────────────────────────────────────────────────────
 
@@ -188,6 +192,63 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
                 }
             } catch (e: any) {
                 ctx.reply(t('error', { msg: e.message }));
+            }
+        });
+
+        bot.command('stop', async (ctx) => {
+            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
+            
+            const port = getDebuggingPort();
+            await ctx.reply(t('stoppingAgent'));
+
+            try {
+                const result = await stopAgent(port);
+                if (result.success) {
+                    await ctx.reply(t('agentStopped'));
+                } else {
+                    await ctx.reply(t('agentNotRunning'));
+                }
+            } catch (e: any) {
+                ctx.reply(t('error', { msg: e.message }));
+            }
+        });
+
+        bot.command('alarm', async (ctx) => {
+            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
+            
+            const chatId = ctx.chat.id.toString();
+            if (activeAlarms.has(chatId)) {
+                // Quietly ignore or could send a "Already monitoring" message
+                return; 
+            }
+
+            const port = getDebuggingPort();
+            await ctx.reply(t('alarmStarted'));
+            activeAlarms.add(chatId);
+
+            try {
+                let finished = false;
+                const maxAttempts = 30; // ~20 minutes max
+                for (let i = 0; i < maxAttempts; i++) {
+                    finished = await waitForAgentResponse(port, 45000); 
+                    if (finished) break;
+                    
+                    // Periodically updated status if i is high
+                    if (i > 0 && i % 10 === 0) {
+                        await ctx.reply(t('alarmMonitoring'));
+                    }
+                }
+
+                if (finished) {
+                    const { buffer } = await captureAgentScreenshot(port);
+                    await ctx.replyWithPhoto({ source: buffer }, { caption: t('alarmFinished') });
+                } else {
+                    ctx.reply(t('timeoutError'));
+                }
+            } catch (e: any) {
+                ctx.reply(t('error', { msg: e.message }));
+            } finally {
+                activeAlarms.delete(chatId);
             }
         });
 

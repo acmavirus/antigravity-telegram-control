@@ -475,3 +475,58 @@ export async function waitForAgentResponse(port: number, timeoutMs = 450000): Pr
     }
     return false;
 }
+
+/**
+ * Stop the Antigravity agent if it is currently generating.
+ */
+export async function stopAgent(port: number): Promise<{ success: boolean, message?: string }> {
+    const raw = await httpGet(`http://127.0.0.1:${port}/json`);
+    const targets: CdpTarget[] = JSON.parse(raw);
+    let candidates = targets.filter(t =>
+        (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
+        t.webSocketDebuggerUrl &&
+        !t.url.includes('devtools://')
+    );
+
+    // Prioritize correct targets
+    candidates.sort((a, b) => {
+        const aMatch = a.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        const bMatch = b.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        return bMatch - aMatch;
+    });
+
+    for (const target of candidates) {
+        try {
+            const client = new CdpClient(target.webSocketDebuggerUrl!);
+            await client.connect();
+
+            const stopResult = await client.send('Runtime.evaluate', {
+                expression: `
+                    (function() {
+                        const stopIcon = document.querySelector("svg.lucide-square, [data-tooltip-id*='cancel'], [aria-label*='Stop'], [title*='Stop']");
+                        if (stopIcon) {
+                            const button = stopIcon.closest('button');
+                            if (button) {
+                                button.click();
+                                return { success: true };
+                            }
+                        }
+                        return { success: false };
+                    })()
+                `,
+                returnByValue: true
+            });
+
+            const val = stopResult?.result?.value;
+            if (val && val.success) {
+                client.close();
+                return { success: true };
+            }
+            client.close();
+        } catch (e: any) {
+            console.warn(`[CDP] Error stopping agent in target ${target.title}:`, e.message);
+        }
+    }
+
+    return { success: false, message: "Stop button not found or already stopped." };
+}
