@@ -170,6 +170,8 @@ export function getSettingsHtml(token: string, chatId: string, debuggingPort: nu
         <span>/start</span> – Get your Chat ID<br>
         <span>/screenshot</span> – Capture Agent frame<br>
         <span>/ask</span> &lt;message&gt; – Send to agent chat<br>
+        <span>/stop</span> – Stop agent generation<br>
+        <span>/alarm</span> – Alarm when finished<br>
         <span>/check</span> – Check completion manually<br>
         <span>/cmd</span> &lt;command&gt; – Run in terminal<br>
         <span>/help</span> – Show commands
