@@ -64,6 +64,16 @@ code --remote-debugging-port=9222
 
 ---
 
+## 🆕 What's New in v0.0.5
+
+*   **⚡ Improved Smart Detection**: Enhanced detection of Agent chat elements using Shadow DOM traversal, ensuring the bot always "sees" the UI regardless of how depth it's nested.
+*   **📜 Auto-Scroll Logic**: Added intelligence to automatically scroll the chat container to the bottom after detection or before taking a screenshot.
+*   **🎯 Targeted Capture**: Prioritizes the correct VS Code webviews using title-based matching and intelligent element scoring.
+*   **🛡️ Robust Error Handling**: More descriptive feedback when the remote debugging port (`9222`) is unavailable or when the chat UI cannot be located.
+*   **📦 Build Optimization**: Refined the compiler and packaging workflow for a more stable and compact extension file.
+
+---
+
 ## 🏗 Technology Stack
 
 - **TypeScript**: Robust logic and type safety.

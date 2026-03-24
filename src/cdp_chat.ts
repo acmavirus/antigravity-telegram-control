@@ -92,7 +92,7 @@ export async function sendViaCDP(text: string, port: number): Promise<void> {
                         const escapedText = ${JSON.stringify(text)};
                         
                         // Look specifically for the contenteditable used by the chat input
-                        const editors = [...document.querySelectorAll('#conversation [contenteditable="true"], #chat [contenteditable="true"], #cascade [contenteditable="true"], .chat-input [contenteditable="true"], .interactive-input-editor [contenteditable="true"], textarea')]
+                        const editors = [...document.querySelectorAll('#conversation [contenteditable="true"], #chat [contenteditable="true"], #cascade [contenteditable="true"], .chat-input [contenteditable="true"], .interactive-input-editor [contenteditable="true"], .chat-input, textarea')]
                             .filter(el => el.offsetParent !== null && !el.className.includes('xterm'));
                         
                         const editor = editors.at(-1);
@@ -221,37 +221,30 @@ const SCROLL_INJECTION_JS = `
 
             if (!targetEl) targetEl = document.body;
 
-            // 2. Scroll Logic
-            function scrollAllAncestors(el) {
-                let curr = el;
-                while (curr) {
-                    if (curr.scrollHeight > curr.clientHeight) {
-                        curr.scrollTop = curr.scrollHeight + 5000;
+            // 2. Focused Scroll Logic (NO scrollIntoView OR window.scrollTo TO AVOID FLASHING)
+            function scrollTarget(el) {
+                if (!el) return;
+                try {
+                    if (el.scrollHeight > el.clientHeight) {
+                        el.scrollTop = el.scrollHeight + 1000;
                     }
+                } catch(e) {}
+            }
+
+            // A. Scroll the target container specifically
+            scrollTarget(targetEl);
+
+            // B. Find last message item and ensure its parents are scrolled
+            const lastMsg = await querySelectorDeep('.message:last-child, .chat-item:last-child, [class*="item"]:last-child, .conversation-item:last-child');
+            if (lastMsg) {
+                let curr = lastMsg.parentElement;
+                while (curr && curr !== document.body) {
+                    scrollTarget(curr);
                     curr = curr.parentElement || (curr.parentNode && curr.parentNode.host);
                 }
             }
 
-            // A. Scroll from target
-            scrollAllAncestors(targetEl);
-
-            // B. Find last message item
-            const lastMsg = await querySelectorDeep('.message:last-child, .chat-item:last-child, [class*="item"]:last-child, .conversation-item:last-child');
-            if (lastMsg) {
-                lastMsg.scrollIntoView({ behavior: 'instant', block: 'end' });
-                scrollAllAncestors(lastMsg);
-            }
-
-            // C. Global scroller hunt
-            const allDivs = document.querySelectorAll('div');
-            for (const d of allDivs) {
-                const style = window.getComputedStyle(d);
-                if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && d.scrollHeight > d.clientHeight) {
-                    d.scrollTop = d.scrollHeight + 5000;
-                }
-            }
-
-            window.scrollTo(0, document.body.scrollHeight);
+            // Minimal delay to let React render if needed, but no sudden window jumps
             await new Promise(r => setTimeout(r, 500)); 
             return { success: true };
         } catch(e) {
@@ -305,8 +298,7 @@ export async function captureAgentScreenshot(port: number): Promise<{ buffer: Bu
             const client = new CdpClient(target.webSocketDebuggerUrl!);
             await client.connect();
 
-            // ── BẮT BUỘC CUỘN XUỐNG TRƯỚC ──
-            await autoScrollToBottom(client);
+            // (Auto-scroll will be done after finding the chat area below to avoid flashing non-chat targets)
 
             const boxResult = await client.send('Runtime.evaluate', {
                 expression: `
@@ -316,7 +308,8 @@ export async function captureAgentScreenshot(port: number): Promise<{ buffer: Bu
                         const selectors = [
                             '#conversation', '#chat', '#cascade', 
                             '.chat-container', '.messages-container', 
-                            '[class*="message-list"]', '[class*="Conversation"]'
+                            '[class*="message-list"]', '[class*="Conversation"]',
+                            '.chat-input', '[contenteditable="true"]'
                         ];
                         
                         let foundSelector = "none";
@@ -324,17 +317,24 @@ export async function captureAgentScreenshot(port: number): Promise<{ buffer: Bu
                         for (const s of selectors) {
                             targetEl = await querySelectorDeep(s);
                             if (targetEl && targetEl.offsetParent !== null) {
+                                // If it's just an input, try to find the container
+                                if (s === '.chat-input' || s === '[contenteditable="true"]') {
+                                     const container = targetEl.closest('#conversation, #chat, #cascade, [class*="Conversation"], [class*="chat-container"]');
+                                     if (container) targetEl = container;
+                                }
                                 foundSelector = s;
                                 break;
                             }
                         }
 
-                        if (!targetEl) targetEl = document.body;
+                        // VALIDATION: If no chat-related selector was found, this target likely isn't the chat UI.
+                        if (!targetEl) return { error: "chat_elements_not_found" };
 
                         let captureEl = targetEl;
-                        let captureType = foundSelector === "none" ? "body" : "selector";
+                        let captureType = "selector";
                         
-                        if (targetEl === document.body || targetEl.offsetHeight < 300) {
+                        // If we found a tiny element or the input only, fallback to largest scroller in this context
+                        if (targetEl.offsetHeight < 200) {
                             const scrollers = Array.from(document.querySelectorAll('div'))
                                 .filter(d => d.offsetHeight > 400 && d.offsetParent !== null)
                                 .sort((a, b) => b.offsetHeight - a.offsetHeight);
@@ -363,6 +363,9 @@ export async function captureAgentScreenshot(port: number): Promise<{ buffer: Bu
 
             const res = boxResult?.result?.value;
             if (res && !res.error) {
+                // ── BẮT BUỘC CUỘN XUỐNG BÂY GIỜ VÌ ĐÃ XÁC ĐỊNH ĐÚNG KHUNG ──
+                await autoScrollToBottom(client);
+
                 const screenshotResult = await client.send('Page.captureScreenshot', {
                     format: 'jpeg',
                     quality: 90,
