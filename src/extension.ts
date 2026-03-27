@@ -7,6 +7,7 @@ import { getSettingsHtml } from './settings_view';
 import { TelegramSettingsProvider } from './settings_provider';
 import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot, stopAgent } from './cdp_chat';
 import { translations } from './i18n';
+import * as os from 'os';
 
 let bot: Telegraf | undefined;
 
@@ -18,7 +19,7 @@ function t(key: keyof typeof translations['en'], params: Record<string, string> 
     const lang = getLanguage();
     const tranSet = translations[lang] || translations['en'];
     let text = tranSet[key] || translations['en'][key] || '';
-    
+
     for (const [pk, pv] of Object.entries(params)) {
         text = text.replace(`{${pk}}`, pv);
     }
@@ -197,7 +198,7 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
 
         bot.command('stop', async (ctx) => {
             if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
-            
+
             const port = getDebuggingPort();
             await ctx.reply(t('stoppingAgent'));
 
@@ -215,11 +216,11 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
 
         bot.command('alarm', async (ctx) => {
             if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
-            
+
             const chatId = ctx.chat.id.toString();
             if (activeAlarms.has(chatId)) {
                 // Quietly ignore or could send a "Already monitoring" message
-                return; 
+                return;
             }
 
             const port = getDebuggingPort();
@@ -230,9 +231,9 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
                 let finished = false;
                 const maxAttempts = 30; // ~20 minutes max
                 for (let i = 0; i < maxAttempts; i++) {
-                    finished = await waitForAgentResponse(port, 45000); 
+                    finished = await waitForAgentResponse(port, 45000);
                     if (finished) break;
-                    
+
                     // Periodically updated status if i is high
                     if (i > 0 && i % 10 === 0) {
                         await ctx.reply(t('alarmMonitoring'));
@@ -343,22 +344,92 @@ export function activate(context: vscode.ExtensionContext) {
                 { enableScripts: true }
             );
             const cfg = vscode.workspace.getConfiguration('antigravityTelegramControl');
+
+            // Load paths and agent files
+            const agentsMsPath = cfg.get<string>('agentsMsPath') || '';
+            const geminiMdPath = cfg.get<string>('geminiMdPath') || '';
+            let agentsMs = '';
+            let geminiMd = '';
+
+            try {
+                const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const msPath = agentsMsPath || (root ? path.join(root, 'agents.md') : undefined);
+                const mdPath = geminiMdPath || (root ? path.join(root, 'gemini.md') : undefined);
+
+                if (msPath && fs.existsSync(msPath)) agentsMs = fs.readFileSync(msPath, 'utf8');
+                if (mdPath && fs.existsSync(mdPath)) geminiMd = fs.readFileSync(mdPath, 'utf8');
+            } catch (e) { }
+
             panel.webview.html = getSettingsHtml(
-                cfg.get('botToken') ?? '', 
-                cfg.get('allowedChatId') ?? '', 
+                cfg.get('botToken') ?? '',
+                cfg.get('allowedChatId') ?? '',
                 cfg.get('debuggingPort') ?? 9222,
-                cfg.get('language') ?? 'en'
+                cfg.get('language') ?? 'en',
+                agentsMs,
+                geminiMd,
+                agentsMsPath,
+                geminiMdPath
             );
+
             panel.webview.onDidReceiveMessage(async (msg) => {
                 if (msg.command === 'save') {
                     await cfg.update('botToken', msg.token, vscode.ConfigurationTarget.Global);
                     await cfg.update('allowedChatId', msg.chatId, vscode.ConfigurationTarget.Global);
                     await cfg.update('debuggingPort', msg.debuggingPort ?? 9222, vscode.ConfigurationTarget.Global);
                     await cfg.update('language', msg.language ?? 'en', vscode.ConfigurationTarget.Global);
-                    
+
                     vscode.window.showInformationMessage(t('settingsSaved'));
                     stopBot();
                     startBot(context);
+                }
+                if (msg.command === 'saveAgents') {
+                    try {
+                        await cfg.update('agentsMsPath', msg.agentsMsPath, vscode.ConfigurationTarget.Global);
+                        await cfg.update('geminiMdPath', msg.geminiMdPath, vscode.ConfigurationTarget.Global);
+
+                        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                        const msPath = msg.agentsMsPath || (root ? path.join(root, 'agents.md') : undefined);
+                        const mdPath = msg.geminiMdPath || (root ? path.join(root, 'gemini.md') : undefined);
+
+                        if (msPath) fs.writeFileSync(msPath, msg.agentsMs, 'utf8');
+                        if (mdPath) fs.writeFileSync(mdPath, msg.geminiMd, 'utf8');
+
+                        vscode.window.showInformationMessage('Agent configuration updated!');
+                    } catch (e: any) {
+                        vscode.window.showErrorMessage(`Failed to save agents: ${e.message}`);
+                    }
+                }
+                if (msg.command === 'autofind') {
+                    try {
+                        const home = os.homedir();
+                        const geminiDir = path.join(home, '.gemini');
+                        const results: any = { command: 'foundPaths' };
+
+                        if (fs.existsSync(geminiDir)) {
+                            const msPath = path.join(geminiDir, 'agents.md');
+                            const mdPath = path.join(geminiDir, 'gemini.md');
+
+                            if (fs.existsSync(msPath)) {
+                                results.agentsMsPath = msPath;
+                                results.agentsMs = fs.readFileSync(msPath, 'utf8');
+                            }
+                            if (fs.existsSync(mdPath)) {
+                                results.geminiMdPath = mdPath;
+                                results.geminiMd = fs.readFileSync(mdPath, 'utf8');
+                            }
+
+                            if (results.agentsMsPath || results.geminiMdPath) {
+                                panel.webview.postMessage(results);
+                                vscode.window.showInformationMessage('Found agent files in .gemini folder!');
+                            } else {
+                                vscode.window.showWarningMessage('No agent files found in .gemini folder.');
+                            }
+                        } else {
+                            vscode.window.showWarningMessage('Could not find .gemini folder in home directory.');
+                        }
+                    } catch (e: any) {
+                        vscode.window.showErrorMessage(`Search failed: ${e.message}`);
+                    }
                 }
                 if (msg.command === 'registerCommands') {
                     const tokenToUse = msg.token || cfg.get('botToken') || '';

@@ -2,7 +2,7 @@
     "name": "antigravity-telegram-control",
     "displayName": "Antigravity Telegram Control",
     "description": "Control Antigravity Agent via Telegram and take screenshots.",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "publisher": "acmatvjrus",
     "repository": {
         "type": "git",
@@ -80,6 +80,16 @@
                     "type": "string",
                     "default": "en",
                     "description": "Language for Telegram bot messages"
+                },
+                "antigravityTelegramControl.agentsMsPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Full path to your agents.md file"
+                },
+                "antigravityTelegramControl.geminiMdPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Full path to your gemini.md file"
                 }
             }
         }
