@@ -29,6 +29,8 @@ export interface Translation {
     alarmMonitoring: string;
     alarmFinished: string;
     alarmUsage: string;
+    autoRetryMsg?: string;
+    autoRetryError?: string;
 }
 
 export const translations: Record<string, Translation> = {
@@ -63,6 +65,8 @@ export const translations: Record<string, Translation> = {
         alarmMonitoring: "⏳ Still monitoring agent status...",
         alarmFinished: "✅ Agent has finished responding! (Alarm)",
         alarmUsage: "Usage: /alarm",
+        autoRetryMsg: "⚠️ Timeout. Auto-retrying (Attempt {attempt}/3)...",
+        autoRetryError: "❌ Error: {msg}. Auto-retrying (Attempt {attempt}/3)...",
     },
     'vi': {
         welcome: "Bot đang hoạt động! Chat ID của bạn: `${id}`\n\nGõ /help để xem lệnh.",
@@ -95,6 +99,8 @@ export const translations: Record<string, Translation> = {
         alarmMonitoring: "⏳ Vẫn đang theo dõi trạng thái Agent...",
         alarmFinished: "✅ Agent đã trả lời xong! (Báo thức)",
         alarmUsage: "Cách dùng: /alarm",
+        autoRetryMsg: "⚠️ Hết thời gian. Đang tự động thử lại (Lần {attempt}/3)...",
+        autoRetryError: "❌ Lỗi: {msg}. Đang tự động thử lại (Lần {attempt}/3)...",
     },
     'zh': {
         welcome: "机器人已激活！您的聊天 ID：`${id}`\n\n输入 /help 查看命令。",

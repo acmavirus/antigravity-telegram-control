@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getSettingsHtml } from './settings_view';
 import { TelegramSettingsProvider } from './settings_provider';
-import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot, stopAgent } from './cdp_chat';
+import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot, stopAgent, clickRetryButton } from './cdp_chat';
 import { translations } from './i18n';
 import * as os from 'os';
 
@@ -104,7 +104,13 @@ async function sendToAgentChat(text: string): Promise<void> {
 
     // ── Strategy 3: clipboard fallback ───────────────────────────────────────
     await vscode.env.clipboard.writeText(text);
-    try { await vscode.commands.executeCommand('workbench.action.chat.open'); } catch (_) { }
+    try { 
+        await vscode.commands.executeCommand('workbench.action.chat.open'); 
+        // If we opened the chat sidebar, don't throw a fatal error, just warn
+        console.warn('[Telegram] Falling back to clipboard for:', text);
+        return; 
+    } catch (_) { }
+
     throw new Error(t('error', { msg: `CDP: ${cdpErrorMsg}\n\nNội dung đã copy vào clipboard — nhấn Ctrl+V trong chat.` }));
 }
 
@@ -148,14 +154,11 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
                 await sendToAgentChat(query);
                 ctx.reply(t('askSent', { query }), { parse_mode: 'Markdown' });
 
-                // Spawn background task to check when generating completes
-                vscode.window.withProgress({
-                    location: vscode.ProgressLocation.Notification,
-                    title: t('agentThinking'),
-                    cancellable: false
-                }, async () => {
+                const runCheck = async (attempt = 1) => {
+                    const port = getDebuggingPort();
+                    const autoRetry = vscode.workspace.getConfiguration('antigravityTelegramControl').get<boolean>('autoRetry') ?? false;
+
                     try {
-                        const port = getDebuggingPort();
                         const finished = await waitForAgentResponse(port);
                         if (finished) {
                             try {
@@ -165,12 +168,41 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
                                 ctx.reply(t('screenshotError', { msg: screenshotErr.message }));
                             }
                         } else {
-                            ctx.reply(t('timeoutError'));
+                            if (autoRetry && attempt < 3) {
+                                // NEW LOGIC: Try to find and click the retry button ONLY
+                                const retryResult = await clickRetryButton(port);
+                                if (retryResult.success) {
+                                    await ctx.reply(t('autoRetryMsg', { attempt: (attempt + 1).toString() }));
+                                    await runCheck(attempt + 1);
+                                } else {
+                                    ctx.reply(t('timeoutError'));
+                                }
+                            } else {
+                                ctx.reply(t('timeoutError'));
+                            }
                         }
                     } catch (e: any) {
-                        ctx.reply(t('trackingError', { msg: e.message }));
+                        if (autoRetry && attempt < 3) {
+                            // Try clicking retry even on error (maybe it's a transient error)
+                            const retryResult = await clickRetryButton(port);
+                            if (retryResult.success) {
+                                await ctx.reply(t('autoRetryMsg', { attempt: (attempt + 1).toString() }));
+                                await runCheck(attempt + 1);
+                            } else {
+                                ctx.reply(t('trackingError', { msg: e.message }));
+                            }
+                        } else {
+                            ctx.reply(t('trackingError', { msg: e.message }));
+                        }
                     }
-                });
+                };
+
+                // Spawn background task to check when generating completes
+                vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: t('agentThinking'),
+                    cancellable: false
+                }, () => runCheck());
 
             } catch (e: any) {
                 ctx.reply(t('error', { msg: e.message }));
@@ -368,7 +400,8 @@ export function activate(context: vscode.ExtensionContext) {
                 agentsMs,
                 geminiMd,
                 agentsMsPath,
-                geminiMdPath
+                geminiMdPath,
+                cfg.get('autoRetry') ?? false
             );
 
             panel.webview.onDidReceiveMessage(async (msg) => {
@@ -397,6 +430,14 @@ export function activate(context: vscode.ExtensionContext) {
                         vscode.window.showInformationMessage('Agent configuration updated!');
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save agents: ${e.message}`);
+                    }
+                }
+                if (msg.command === 'saveAuto') {
+                    try {
+                        await cfg.update('autoRetry', msg.autoRetry, vscode.ConfigurationTarget.Global);
+                        vscode.window.showInformationMessage('Automation settings updated!');
+                    } catch (e: any) {
+                        vscode.window.showErrorMessage(`Failed to save automation settings: ${e.message}`);
                     }
                 }
                 if (msg.command === 'autofind') {

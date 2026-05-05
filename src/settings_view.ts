@@ -8,7 +8,8 @@ export function getSettingsHtml(
     agentsMs: string = '',
     geminiMd: string = '',
     agentsMsPath: string = '',
-    geminiMdPath: string = ''
+    geminiMdPath: string = '',
+    autoRetry: boolean = false
 ): string {
     const languages = [
         { code: 'en', name: 'English' },
@@ -106,6 +107,26 @@ export function getSettingsHtml(
 
         .field {
             margin-bottom: 12px;
+        }
+
+        .field.checkbox-field {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .field.checkbox-field input {
+            width: auto;
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .field.checkbox-field label {
+            margin: 0;
+            cursor: pointer;
+            color: var(--vscode-foreground);
         }
 
         label {
@@ -210,6 +231,7 @@ export function getSettingsHtml(
     <div class="tabs">
         <div class="tab active" data-target="settings-tab">Settings</div>
         <div class="tab" data-target="agents-tab">Agents</div>
+        <div class="tab" data-target="auto-tab">Auto</div>
     </div>
 
     <div class="content-container">
@@ -297,6 +319,19 @@ export function getSettingsHtml(
                 If path is empty, it defaults to workspace root.
             </div>
         </div>
+
+        <!-- Auto Tab -->
+        <div id="auto-tab" class="tab-content">
+            <h2>Automation Settings</h2>
+            
+            <div class="field checkbox-field">
+                <input type="checkbox" id="auto-retry" ${autoRetry ? 'checked' : ''}>
+                <label for="auto-retry">Auto Retry (Tự động thử lại khi lỗi/timeout)</label>
+            </div>
+
+            <button id="save-auto">Save Automation Settings</button>
+            <div id="auto-msg" class="msg">✓ Automation settings saved.</div>
+        </div>
     </div>
 
     <script>
@@ -352,6 +387,17 @@ export function getSettingsHtml(
                 geminiMdPath: document.getElementById('gemini-md-path').value
             });
             const msg = document.getElementById('agents-msg');
+            msg.classList.add('show');
+            setTimeout(() => msg.classList.remove('show'), 3000);
+        });
+
+        // Save Auto Settings
+        document.getElementById('save-auto').addEventListener('click', () => {
+            vscode.postMessage({
+                command: 'saveAuto',
+                autoRetry: document.getElementById('auto-retry').checked
+            });
+            const msg = document.getElementById('auto-msg');
             msg.classList.add('show');
             setTimeout(() => msg.classList.remove('show'), 3000);
         });

@@ -72,11 +72,20 @@ export async function sendViaCDP(text: string, port: number): Promise<void> {
     const targets: CdpTarget[] = JSON.parse(raw);
 
     // Filter to any target that could reasonably host the chat UI
+    // Exclude our own extension's settings page to avoid "Promise was collected" or self-interaction
     const candidates = targets.filter(t =>
         (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
         t.webSocketDebuggerUrl &&
-        !t.url.includes('devtools://')
+        !t.url.includes('devtools://') &&
+        !t.title.includes('Extension: Antigravity Telegram Control')
     );
+
+    // Prioritize targets that look like the Antigravity Agent
+    candidates.sort((a, b) => {
+        const aMatch = a.title.toLowerCase().includes('antigravity') ? 1 : 0;
+        const bMatch = b.title.toLowerCase().includes('antigravity') ? 1 : 0;
+        return bMatch - aMatch;
+    });
 
     let allDebugs: string[] = [];
 
@@ -89,13 +98,31 @@ export async function sendViaCDP(text: string, port: number): Promise<void> {
             const focusResult = await client.send('Runtime.evaluate', {
                 expression: `
                     (async function() {
+                        ${SCROLL_INJECTION_JS}
+
                         const escapedText = ${JSON.stringify(text)};
                         
-                        // Look specifically for the contenteditable used by the chat input
-                        const editors = [...document.querySelectorAll('#conversation [contenteditable="true"], #chat [contenteditable="true"], #cascade [contenteditable="true"], .chat-input [contenteditable="true"], .interactive-input-editor [contenteditable="true"], .chat-input, textarea')]
-                            .filter(el => el.offsetParent !== null && !el.className.includes('xterm'));
-                        
-                        const editor = editors.at(-1);
+                        // Look specifically for the contenteditable used by the chat input (Deep search for Shadow DOM)
+                        const selectors = [
+                            '#conversation [contenteditable="true"]', 
+                            '#chat [contenteditable="true"]', 
+                            '#cascade [contenteditable="true"]', 
+                            '.chat-input [contenteditable="true"]', 
+                            '.interactive-input-editor [contenteditable="true"]', 
+                            '[role="textbox"][contenteditable="true"]',
+                            '.chat-input', 
+                            'textarea'
+                        ];
+
+                        let editor = null;
+                        for (const s of selectors) {
+                            const found = await querySelectorDeep(s);
+                            if (found && found.offsetParent !== null && !found.className.includes('xterm')) {
+                                editor = found;
+                                break;
+                            }
+                        }
+
                         if (!editor) return { found: false, error: "editor_not_found" };
 
                         editor.focus();
@@ -134,8 +161,24 @@ export async function sendViaCDP(text: string, port: number): Promise<void> {
                         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
                         await new Promise(r => setTimeout(r, 100));
 
-                        // Find the submit button natively
-                        const submit = document.querySelector("svg.lucide-arrow-right, svg[class*='arrow-right'], svg[class*='send']")?.closest("button");
+                        // Find the submit button natively (Deep search)
+                        const submitSelectors = [
+                            "svg.lucide-arrow-right", 
+                            "svg[class*='arrow-right']", 
+                            "svg[class*='send']",
+                            "button[title*='Send']",
+                            "button[aria-label*='Send']"
+                        ];
+
+                        let submit = null;
+                        for (const ss of submitSelectors) {
+                            const icon = await querySelectorDeep(ss);
+                            if (icon) {
+                                submit = icon.closest("button");
+                                if (submit && !submit.disabled) break;
+                            }
+                        }
+
                         if (submit && !submit.disabled) {
                             submit.click();
                             return { found: true, method: "click_submit" };
@@ -186,6 +229,7 @@ export async function sendViaCDP(text: string, port: number): Promise<void> {
     const debugInfo = allDebugs.length > 0 ? "\\nDetails: " + allDebugs.slice(0, 4).join("\\n") : "";
     throw new Error("Không tìm thấy ô chat để truyền type." + debugInfo);
 }
+
 
 /**
  * Deep search querySelector helper that traverses Shadow DOM.
@@ -280,14 +324,15 @@ export async function captureAgentScreenshot(port: number): Promise<{ buffer: Bu
     let candidates = targets.filter(t =>
         (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
         t.webSocketDebuggerUrl &&
-        !t.url.includes('devtools://')
+        !t.url.includes('devtools://') &&
+        !t.title.includes('Extension: Antigravity Telegram Control')
     );
 
     // ── ƯU TIÊN TARGET ĐÚNG ──
-    // Ưu tiên các target có title chứa "antigravity-telegram-control" như user đã chỉ ra
+    // Ưu tiên các target có title chứa "Antigravity" nhưng không phải là Extension chính nó
     candidates.sort((a, b) => {
-        const aMatch = a.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
-        const bMatch = b.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        const aMatch = a.title.toLowerCase().includes('antigravity') ? 1 : 0;
+        const bMatch = b.title.toLowerCase().includes('antigravity') ? 1 : 0;
         return bMatch - aMatch;
     });
 
@@ -407,13 +452,14 @@ export async function waitForAgentResponse(port: number, timeoutMs = 450000): Pr
     let candidates = targets.filter(t =>
         (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
         t.webSocketDebuggerUrl &&
-        !t.url.includes('devtools://')
+        !t.url.includes('devtools://') &&
+        !t.title.includes('Extension: Antigravity Telegram Control')
     );
 
     // ── ƯU TIÊN TARGET ĐÚNG ──
     candidates.sort((a, b) => {
-        const aMatch = a.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
-        const bMatch = b.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        const aMatch = a.title.toLowerCase().includes('antigravity') ? 1 : 0;
+        const bMatch = b.title.toLowerCase().includes('antigravity') ? 1 : 0;
         return bMatch - aMatch;
     });
 
@@ -488,13 +534,14 @@ export async function stopAgent(port: number): Promise<{ success: boolean, messa
     let candidates = targets.filter(t =>
         (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
         t.webSocketDebuggerUrl &&
-        !t.url.includes('devtools://')
+        !t.url.includes('devtools://') &&
+        !t.title.includes('Extension: Antigravity Telegram Control')
     );
 
     // Prioritize correct targets
     candidates.sort((a, b) => {
-        const aMatch = a.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
-        const bMatch = b.title.toLowerCase().includes('antigravity-telegram-control') ? 1 : 0;
+        const aMatch = a.title.toLowerCase().includes('antigravity') ? 1 : 0;
+        const bMatch = b.title.toLowerCase().includes('antigravity') ? 1 : 0;
         return bMatch - aMatch;
     });
 
@@ -532,4 +579,88 @@ export async function stopAgent(port: number): Promise<{ success: boolean, messa
     }
 
     return { success: false, message: "Stop button not found or already stopped." };
+}
+/**
+ * Find and click the retry button in the chat UI if it exists.
+ */
+export async function clickRetryButton(port: number): Promise<{ success: boolean, message?: string }> {
+    const raw = await httpGet(`http://127.0.0.1:${port}/json`);
+    const targets: CdpTarget[] = JSON.parse(raw);
+    let candidates = targets.filter(t =>
+        (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
+        t.webSocketDebuggerUrl &&
+        !t.url.includes('devtools://') &&
+        !t.title.includes('Extension: Antigravity Telegram Control')
+    );
+
+    // Prioritize correct targets
+    candidates.sort((a, b) => {
+        const aMatch = a.title.toLowerCase().includes('antigravity') ? 1 : 0;
+        const bMatch = b.title.toLowerCase().includes('antigravity') ? 1 : 0;
+        return bMatch - aMatch;
+    });
+
+    for (const target of candidates) {
+        try {
+            const client = new CdpClient(target.webSocketDebuggerUrl!);
+            await client.connect();
+
+            const retryResult = await client.send('Runtime.evaluate', {
+                expression: `
+                    (async function() {
+                        ${SCROLL_INJECTION_JS}
+                        
+                        const retrySelectors = [
+                            "button[aria-label*='Retry']",
+                            "button[title*='Retry']",
+                            "button:has(svg.lucide-refresh-cw)",
+                            "button:has(svg.lucide-rotate-ccw)",
+                            ".retry-button",
+                            "button:contains('Retry')",
+                            "button:contains('Thử lại')"
+                        ];
+
+                        let retryBtn = null;
+                        for (const s of retrySelectors) {
+                            if (s.includes(':contains') || s.includes(':has')) {
+                                // Fallback for pseudo-selectors if needed
+                                const buttons = Array.from(document.querySelectorAll('button'));
+                                if (s.includes(':contains')) {
+                                    const text = s.match(/'(.*)'/)[1];
+                                    retryBtn = buttons.find(b => b.textContent.includes(text));
+                                } else if (s.includes(':has')) {
+                                    const sub = s.match(/\\((.*)\\)/)[1];
+                                    retryBtn = buttons.find(b => b.querySelector(sub));
+                                }
+                            } else {
+                                retryBtn = await querySelectorDeep(s);
+                            }
+                            
+                            if (retryBtn && !retryBtn.disabled && retryBtn.offsetParent !== null) break;
+                            else retryBtn = null;
+                        }
+
+                        if (retryBtn) {
+                            retryBtn.click();
+                            return { success: true };
+                        }
+                        return { success: false };
+                    })()
+                `,
+                awaitPromise: true,
+                returnByValue: true
+            });
+
+            const val = retryResult?.result?.value;
+            if (val && val.success) {
+                client.close();
+                return { success: true };
+            }
+            client.close();
+        } catch (e: any) {
+            console.warn(`[CDP] Error clicking retry in target ${target.title}:`, e.message);
+        }
+    }
+
+    return { success: false, message: "Retry button not found." };
 }
