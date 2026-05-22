@@ -9,8 +9,68 @@ import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot, stopAgent, cl
 import { translations } from './i18n';
 import * as os from 'os';
 import { fetchQuotaInfo } from './quota_checker';
+import { StatusBarManager } from './status_bar';
 
 let bot: Telegraf | undefined;
+let lockManager: BotLockManager | undefined;
+let statusBarManager: StatusBarManager | undefined;
+
+class BotLockManager {
+    private lockFile: string;
+    constructor(context: vscode.ExtensionContext) {
+        this.lockFile = path.join(context.globalStorageUri.fsPath, 'bot.lock');
+    }
+
+    public acquireLock(): boolean {
+        try {
+            const dir = path.dirname(this.lockFile);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+
+            const currentPid = process.pid;
+
+            if (fs.existsSync(this.lockFile)) {
+                const content = fs.readFileSync(this.lockFile, 'utf8').trim();
+                const lockPid = parseInt(content, 10);
+                if (!isNaN(lockPid)) {
+                    if (this.isProcessRunning(lockPid)) {
+                        return false;
+                    }
+                }
+            }
+
+            fs.writeFileSync(this.lockFile, currentPid.toString(), 'utf8');
+            return true;
+        } catch (e) {
+            console.error('[Telegram] Failed to acquire lock:', e);
+            return true; // fallback
+        }
+    }
+
+    public releaseLock(): void {
+        try {
+            if (fs.existsSync(this.lockFile)) {
+                const content = fs.readFileSync(this.lockFile, 'utf8').trim();
+                const lockPid = parseInt(content, 10);
+                if (lockPid === process.pid) {
+                    fs.unlinkSync(this.lockFile);
+                }
+            }
+        } catch (e) {
+            console.error('[Telegram] Failed to release lock:', e);
+        }
+    }
+
+    private isProcessRunning(pid: number): boolean {
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch (e: any) {
+            return e.code === 'EPERM';
+        }
+    }
+}
 
 function getLanguage(): string {
     return vscode.workspace.getConfiguration('antigravityTelegramControl').get<string>('language') ?? 'en';
@@ -166,6 +226,11 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
 
     if (bot) {
         vscode.window.showWarningMessage(t('botAlreadyRunning'));
+        return;
+    }
+
+    if (lockManager && !lockManager.acquireLock()) {
+        vscode.window.showWarningMessage(t('botAlreadyRunningInAnotherWindow'));
         return;
     }
 
@@ -429,12 +494,18 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             console.error('[Telegram] Bot launch failed:', err);
             vscode.window.showErrorMessage(t('error', { msg: err.message }));
             bot = undefined;
+            if (lockManager) {
+                lockManager.releaseLock();
+            }
         });
 
         vscode.window.showInformationMessage(t('botStarted'));
 
     } catch (err: any) {
         bot = undefined;
+        if (lockManager) {
+            lockManager.releaseLock();
+        }
         console.error('[Telegram] startBot fatal error:', err);
         vscode.window.showErrorMessage(t('error', { msg: err.message }));
     }
@@ -442,13 +513,22 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
 
 function stopBot(): void {
     if (!bot) { return; }
-    bot.stop('SIGINT');
+    try {
+        bot.stop('SIGINT');
+    } catch (e) {
+        console.error('[Telegram] Error stopping bot:', e);
+    }
     bot = undefined;
+    if (lockManager) {
+        lockManager.releaseLock();
+    }
 }
 
 // ─── Activate ─────────────────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext) {
+    lockManager = new BotLockManager(context);
+    statusBarManager = new StatusBarManager(context);
 
     // Sidebar settings panel
     const provider = new TelegramSettingsProvider(context.extensionUri);
@@ -460,6 +540,29 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('antigravity-telegram-control.startBot', () => startBot(context)),
         vscode.commands.registerCommand('antigravity-telegram-control.stopBot', stopBot),
+
+        vscode.commands.registerCommand('antigravity-telegram-control.refreshQuota', async () => {
+            if (statusBarManager) {
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: getLanguage() === 'vi' ? 'Đang cập nhật hạn mức...' : 'Updating quota status...',
+                    cancellable: false
+                }, async () => {
+                    await statusBarManager!.update();
+                });
+            }
+        }),
+
+        vscode.workspace.onDidChangeConfiguration(async (e) => {
+            if (e.affectsConfiguration('antigravityTelegramControl.showStatusBar') ||
+                e.affectsConfiguration('antigravityTelegramControl.statusBarUpdateInterval') ||
+                e.affectsConfiguration('antigravityTelegramControl.language')) {
+                if (statusBarManager) {
+                    statusBarManager.startTimer();
+                    await statusBarManager.update();
+                }
+            }
+        }),
 
         vscode.commands.registerCommand('antigravity-telegram-control.openSettings', () => {
             const panel = vscode.window.createWebviewPanel(
@@ -504,7 +607,9 @@ export function activate(context: vscode.ExtensionContext) {
 
                     vscode.window.showInformationMessage(t('settingsSaved'));
                     stopBot();
-                    startBot(context);
+                    setTimeout(() => {
+                        startBot(context);
+                    }, 500);
                 }
                 if (msg.command === 'saveAgents') {
                     try {
@@ -595,7 +700,9 @@ export function activate(context: vscode.ExtensionContext) {
                     // Restart bot if token came from the UI but wasn't saved yet
                     if (manualToken) {
                         stopBot();
-                        startBot(context);
+                        setTimeout(() => {
+                            startBot(context);
+                        }, 500);
                     }
                 } catch (e: any) {
                     vscode.window.showErrorMessage(t('error', { msg: e.message }));
@@ -634,4 +741,8 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
     bot?.stop('SIGINT');
+    lockManager?.releaseLock();
+    if (statusBarManager) {
+        statusBarManager.dispose();
+    }
 }

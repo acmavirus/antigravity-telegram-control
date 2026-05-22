@@ -2,6 +2,7 @@ export interface Translation {
     welcome: string;
     botStarted: string;
     botAlreadyRunning: string;
+    botAlreadyRunningInAnotherWindow?: string;
     invalidToken: string;
     helpText: string;
     askUsage: string;
@@ -34,6 +35,9 @@ export interface Translation {
     quotaUsage?: string;
     quotaTitle?: string;
     promptCredits?: string;
+    flowCredits?: string;
+    userInfo?: string;
+    accountTitle?: string;
     modelsTitle?: string;
     noQuotaInfo?: string;
     findingProcess?: string;
@@ -46,6 +50,7 @@ export const translations: Record<string, Translation> = {
         welcome: "Bot is active! Your Chat ID: `${id}`\n\nType /help to see commands.",
         botStarted: "✅ Telegram Bot started!",
         botAlreadyRunning: "Telegram: Bot is already running!",
+        botAlreadyRunningInAnotherWindow: "Telegram: Bot is already running in another VS Code window.",
         invalidToken: "Telegram: Bot Token is not set.",
         helpText: "/start – Get Chat ID\n/screenshot – Capture agent chat frame\n/ask <content> – Send question to Antigravity Agent\n/check – Re-check Agent completion status\n/stop – Stop the agent if it's running\n/alarm – Notify when Agent finishes\n/quota – Show current prompt credits and model quota limits\n/cmd <command> – Run command in terminal\n/help – Show help",
         askUsage: "Usage: /ask <content to ask agent>",
@@ -78,6 +83,9 @@ export const translations: Record<string, Translation> = {
         quotaUsage: "Usage: /quota",
         quotaTitle: "📊 *Antigravity Quota Info*",
         promptCredits: "Prompt Credits: {available}/{monthly} ({remaining}%)",
+        flowCredits: "Flow Credits: {available}/{monthly} ({remaining}%)",
+        accountTitle: "Account Info:",
+        userInfo: "User: {name} ({email}) - Tier: {tier}",
         modelsTitle: "AI Models:",
         noQuotaInfo: "No active model quota information found.",
         findingProcess: "🔍 Detecting Antigravity process and fetching quota status...",
@@ -88,6 +96,7 @@ export const translations: Record<string, Translation> = {
         welcome: "Bot đang hoạt động! Chat ID của bạn: `${id}`\n\nGõ /help để xem lệnh.",
         botStarted: "✅ Telegram Bot đã khởi động!",
         botAlreadyRunning: "Telegram: Bot đang chạy rồi!",
+        botAlreadyRunningInAnotherWindow: "Telegram: Bot đang chạy ở một cửa sổ VS Code khác.",
         invalidToken: "Telegram: Bot Token chưa được cài đặt.",
         helpText: "/start – Lấy Chat ID\n/screenshot – Chụp khung chat agent\n/ask <nội dung> – Gửi câu hỏi tới Antigravity Agent\n/check – Kiểm tra lại trạng thái hoàn tất của Agent\n/stop – Dừng Agent nếu đang chạy\n/alarm – Thông báo khi Agent hoàn tất\n/quota – Hiển thị hạn mức prompt và mẫu AI\n/cmd <lệnh> – Chạy lệnh trong terminal\n/help – Hiển thị trợ giúp",
         askUsage: "Cách dùng: /ask <nội dung cần hỏi agent>",
@@ -120,6 +129,9 @@ export const translations: Record<string, Translation> = {
         quotaUsage: "Cách dùng: /quota",
         quotaTitle: "📊 *Thông tin hạn mức Antigravity*",
         promptCredits: "Hạn mức prompt: {available}/{monthly} ({remaining}%)",
+        flowCredits: "Hạn mức Flow: {available}/{monthly} ({remaining}%)",
+        accountTitle: "Thông tin tài khoản:",
+        userInfo: "Người dùng: {name} ({email}) - Hạng: {tier}",
         modelsTitle: "Các mẫu AI:",
         noQuotaInfo: "Không tìm thấy thông tin hạn mức của mẫu AI nào.",
         findingProcess: "🔍 Đang dò tìm tiến trình Antigravity và tải thông tin hạn mức...",

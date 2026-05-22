@@ -41,6 +41,10 @@
             {
                 "command": "antigravity-telegram-control.deleteCommands",
                 "title": "Telegram: Delete Slash Commands"
+            },
+            {
+                "command": "antigravity-telegram-control.refreshQuota",
+                "title": "Telegram: Refresh Quota Status"
             }
         ],
         "viewsContainers": {
@@ -99,6 +103,16 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Automatically retry if the agent fails or times out"
+                },
+                "antigravityTelegramControl.showStatusBar": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show the Antigravity quota and credits in the VS Code status bar (bottom bar)"
+                },
+                "antigravityTelegramControl.statusBarUpdateInterval": {
+                    "type": "number",
+                    "default": 60,
+                    "description": "Interval in seconds to update the status bar"
                 }
             }
         }
