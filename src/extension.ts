@@ -8,6 +8,7 @@ import { TelegramSettingsProvider } from './settings_provider';
 import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot, stopAgent, clickRetryButton } from './cdp_chat';
 import { translations } from './i18n';
 import * as os from 'os';
+import { fetchQuotaInfo } from './quota_checker';
 
 let bot: Telegraf | undefined;
 
@@ -34,7 +35,8 @@ const SLASH_COMMANDS = [
     { command: 'ask', description: 'Send a message to the Antigravity agent chat' },
     { command: 'check', description: 'Manually check if the agent has finished responding' },
     { command: 'stop', description: 'Stop the agent if it is currently generating' },
-    { command: 'alarm', description: 'Notify when Agent finishes responding (Long-poll)' }
+    { command: 'alarm', description: 'Notify when Agent finishes responding (Long-poll)' },
+    { command: 'quota', description: 'Show current prompt credits and model quota limits' }
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -49,19 +51,22 @@ function getAllowedChatId(): string | undefined {
 
 async function registerSlashCommands(token: string, chatId?: string): Promise<void> {
     const tg = new Telegram(token);
-    console.log('[Telegram] Registering slash commands...', SLASH_COMMANDS.map(c => c.command));
 
-    // Set commands for all chat types
-    await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'default' } });
-    // Also set for private chats
-    await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'all_private_chats' } });
-    // Also set for group chats
-    await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'all_group_chats' } });
-
-    // If a specific chat ID is provided, register for that specific chat
     if (chatId) {
         const numericChatId = Number(chatId);
         if (!isNaN(numericChatId)) {
+            console.log(`[Telegram] Registering slash commands ONLY for chat ${chatId}...`);
+
+            // Clear commands for default scopes so unauthorized users/groups don't see them
+            try {
+                await tg.deleteMyCommands({ scope: { type: 'default' } });
+                await tg.deleteMyCommands({ scope: { type: 'all_private_chats' } });
+                await tg.deleteMyCommands({ scope: { type: 'all_group_chats' } });
+            } catch (e: any) {
+                console.warn('[Telegram] Failed to clear general commands:', e.message);
+            }
+
+            // Register commands only for this specific chat
             await tg.setMyCommands(SLASH_COMMANDS, {
                 scope: { type: 'chat', chat_id: numericChatId }
             });
@@ -70,9 +75,42 @@ async function registerSlashCommands(token: string, chatId?: string): Promise<vo
             });
             console.log(`[Telegram] Commands registered for chat ${chatId}`);
         }
+    } else {
+        console.log('[Telegram] No allowedChatId specified. Registering slash commands for all users/chats...');
+        // Set commands for all chat types
+        await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'default' } });
+        // Also set for private chats
+        await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'all_private_chats' } });
+        // Also set for group chats
+        await tg.setMyCommands(SLASH_COMMANDS, { scope: { type: 'all_group_chats' } });
     }
 
     console.log('[Telegram] Slash commands registered successfully!');
+}
+
+async function deleteSlashCommands(token: string, chatId?: string): Promise<void> {
+    const tg = new Telegram(token);
+    console.log('[Telegram] Deleting slash commands...');
+
+    // Delete general commands for all scopes
+    await tg.deleteMyCommands({ scope: { type: 'default' } });
+    await tg.deleteMyCommands({ scope: { type: 'all_private_chats' } });
+    await tg.deleteMyCommands({ scope: { type: 'all_group_chats' } });
+
+    // Also delete for specific chat if provided
+    if (chatId) {
+        const numericChatId = Number(chatId);
+        if (!isNaN(numericChatId)) {
+            try {
+                await tg.deleteMyCommands({ scope: { type: 'chat', chat_id: numericChatId } });
+                await tg.deleteMyCommands({ scope: { type: 'chat_administrators', chat_id: numericChatId } });
+            } catch (e: any) {
+                console.warn('[Telegram] Failed to delete specific chat commands:', e.message);
+            }
+        }
+    }
+
+    console.log('[Telegram] All slash commands deleted successfully!');
 }
 
 
@@ -285,6 +323,59 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             }
         });
 
+        bot.command('quota', async (ctx) => {
+            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
+
+            const msg = await ctx.reply(t('findingProcess') || 'Checking quota...');
+            try {
+                const snapshot = await fetchQuotaInfo(getLanguage());
+
+                let replyText = `${t('quotaTitle') || '📊 *Antigravity Quota Info*'}\n\n`;
+
+                if (snapshot.prompt_credits) {
+                    const pc = snapshot.prompt_credits;
+                    const pcStr = (t('promptCredits') || 'Prompt Credits: {available}/{monthly} ({remaining}%)')
+                        .replace('{available}', pc.available.toString())
+                        .replace('{monthly}', pc.monthly.toString())
+                        .replace('{remaining}', pc.remaining_percentage.toFixed(1));
+                    replyText += `• ${pcStr}\n`;
+                }
+
+                if (snapshot.models && snapshot.models.length > 0) {
+                    replyText += `\n*${t('modelsTitle') || 'AI Models:'}*\n`;
+                    for (const model of snapshot.models) {
+                        const pct = model.remaining_percentage !== undefined ? `${model.remaining_percentage.toFixed(1)}%` : 'N/A';
+                        replyText += `• *${model.label}*: ${pct} (Reset: ${model.time_until_reset_formatted})\n`;
+                    }
+                } else {
+                    replyText += `\n_${t('noQuotaInfo') || 'No active model quota information found.'}_\n`;
+                }
+
+                await ctx.telegram.editMessageText(
+                    ctx.chat.id,
+                    msg.message_id,
+                    undefined,
+                    replyText,
+                    { parse_mode: 'Markdown' }
+                );
+            } catch (e: any) {
+                const errMessage = e.message || '';
+                let userFriendlyErr = '';
+                if (errMessage.toLowerCase().includes('process not found')) {
+                    userFriendlyErr = t('noProcessFound') || '❌ Antigravity language server is not running.';
+                } else {
+                    userFriendlyErr = (t('fetchError') || '❌ Failed to fetch quota: {msg}').replace('{msg}', errMessage);
+                }
+
+                await ctx.telegram.editMessageText(
+                    ctx.chat.id,
+                    msg.message_id,
+                    undefined,
+                    userFriendlyErr
+                );
+            }
+        });
+
         bot.command('cmd', async (ctx) => {
             if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
             const parts = ctx.message.text.split(' ');
@@ -477,6 +568,11 @@ export function activate(context: vscode.ExtensionContext) {
                     const chatIdToUse = cfg.get('allowedChatId') || '';
                     vscode.commands.executeCommand('antigravity-telegram-control.registerCommands', tokenToUse, chatIdToUse);
                 }
+                if (msg.command === 'deleteCommands') {
+                    const tokenToUse = msg.token || cfg.get('botToken') || '';
+                    const chatIdToUse = cfg.get('allowedChatId') || '';
+                    vscode.commands.executeCommand('antigravity-telegram-control.deleteCommands', tokenToUse, chatIdToUse);
+                }
             }, undefined, context.subscriptions);
         }),
 
@@ -501,6 +597,28 @@ export function activate(context: vscode.ExtensionContext) {
                         stopBot();
                         startBot(context);
                     }
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(t('error', { msg: e.message }));
+                }
+            });
+        }),
+
+        vscode.commands.registerCommand('antigravity-telegram-control.deleteCommands', async (manualToken?: string, manualChatId?: string) => {
+            const token = manualToken || getToken();
+            const chatId = manualChatId || getAllowedChatId();
+            if (!token) {
+                vscode.window.showErrorMessage(t('invalidToken'));
+                return;
+            }
+
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Deleting Slash Commands on Telegram...",
+                cancellable: false
+            }, async () => {
+                try {
+                    await deleteSlashCommands(token, chatId);
+                    vscode.window.showInformationMessage('✅ All slash commands deleted successfully!');
                 } catch (e: any) {
                     vscode.window.showErrorMessage(t('error', { msg: e.message }));
                 }

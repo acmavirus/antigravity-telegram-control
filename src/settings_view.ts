@@ -263,6 +263,7 @@ export function getSettingsHtml(
 
             <button id="save-settings">Save Settings</button>
             <button id="register" class="secondary">Register Slash Commands</button>
+            <button id="delete-commands" class="secondary">Delete Slash Commands</button>
             <div id="settings-msg" class="msg">✓ Settings saved.</div>
 
             <hr>
@@ -409,6 +410,14 @@ export function getSettingsHtml(
         document.getElementById('register').addEventListener('click', () => {
             vscode.postMessage({ 
                 command: 'registerCommands',
+                token: document.getElementById('token').value,
+                chatId: document.getElementById('chatId').value
+            });
+        });
+
+        document.getElementById('delete-commands').addEventListener('click', () => {
+            vscode.postMessage({ 
+                command: 'deleteCommands',
                 token: document.getElementById('token').value,
                 chatId: document.getElementById('chatId').value
             });

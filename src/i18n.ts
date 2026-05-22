@@ -31,6 +31,14 @@ export interface Translation {
     alarmUsage: string;
     autoRetryMsg?: string;
     autoRetryError?: string;
+    quotaUsage?: string;
+    quotaTitle?: string;
+    promptCredits?: string;
+    modelsTitle?: string;
+    noQuotaInfo?: string;
+    findingProcess?: string;
+    fetchError?: string;
+    noProcessFound?: string;
 }
 
 export const translations: Record<string, Translation> = {
@@ -39,7 +47,7 @@ export const translations: Record<string, Translation> = {
         botStarted: "✅ Telegram Bot started!",
         botAlreadyRunning: "Telegram: Bot is already running!",
         invalidToken: "Telegram: Bot Token is not set.",
-        helpText: "/start – Get Chat ID\n/screenshot – Capture agent chat frame\n/ask <content> – Send question to Antigravity Agent\n/check – Re-check Agent completion status\n/stop – Stop the agent if it's running\n/alarm – Notify when Agent finishes\n/cmd <command> – Run command in terminal\n/help – Show help",
+        helpText: "/start – Get Chat ID\n/screenshot – Capture agent chat frame\n/ask <content> – Send question to Antigravity Agent\n/check – Re-check Agent completion status\n/stop – Stop the agent if it's running\n/alarm – Notify when Agent finishes\n/quota – Show current prompt credits and model quota limits\n/cmd <command> – Run command in terminal\n/help – Show help",
         askUsage: "Usage: /ask <content to ask agent>",
         askSent: "✅ Sent to Antigravity Agent:\n\"{query}\"\n\n_Waiting for agent response..._",
         agentThinking: "Antigravity Agent is thinking...",
@@ -67,13 +75,21 @@ export const translations: Record<string, Translation> = {
         alarmUsage: "Usage: /alarm",
         autoRetryMsg: "⚠️ Timeout. Auto-retrying (Attempt {attempt}/3)...",
         autoRetryError: "❌ Error: {msg}. Auto-retrying (Attempt {attempt}/3)...",
+        quotaUsage: "Usage: /quota",
+        quotaTitle: "📊 *Antigravity Quota Info*",
+        promptCredits: "Prompt Credits: {available}/{monthly} ({remaining}%)",
+        modelsTitle: "AI Models:",
+        noQuotaInfo: "No active model quota information found.",
+        findingProcess: "🔍 Detecting Antigravity process and fetching quota status...",
+        fetchError: "❌ Failed to fetch quota: {msg}",
+        noProcessFound: "❌ Antigravity language server is not running.",
     },
     'vi': {
         welcome: "Bot đang hoạt động! Chat ID của bạn: `${id}`\n\nGõ /help để xem lệnh.",
         botStarted: "✅ Telegram Bot đã khởi động!",
         botAlreadyRunning: "Telegram: Bot đang chạy rồi!",
         invalidToken: "Telegram: Bot Token chưa được cài đặt.",
-        helpText: "/start – Lấy Chat ID\n/screenshot – Chụp khung chat agent\n/ask <nội dung> – Gửi câu hỏi tới Antigravity Agent\n/check – Kiểm tra lại trạng thái hoàn tất của Agent\n/stop – Dừng Agent nếu đang chạy\n/alarm – Thông báo khi Agent hoàn tất\n/cmd <lệnh> – Chạy lệnh trong terminal\n/help – Hiển thị trợ giúp",
+        helpText: "/start – Lấy Chat ID\n/screenshot – Chụp khung chat agent\n/ask <nội dung> – Gửi câu hỏi tới Antigravity Agent\n/check – Kiểm tra lại trạng thái hoàn tất của Agent\n/stop – Dừng Agent nếu đang chạy\n/alarm – Thông báo khi Agent hoàn tất\n/quota – Hiển thị hạn mức prompt và mẫu AI\n/cmd <lệnh> – Chạy lệnh trong terminal\n/help – Hiển thị trợ giúp",
         askUsage: "Cách dùng: /ask <nội dung cần hỏi agent>",
         askSent: "✅ Đã gửi tới Antigravity Agent:\n\"{query}\"\n\n_Đang chờ agent trả lời..._",
         agentThinking: "Antigravity Agent đang suy nghĩ...",
@@ -101,6 +117,14 @@ export const translations: Record<string, Translation> = {
         alarmUsage: "Cách dùng: /alarm",
         autoRetryMsg: "⚠️ Hết thời gian. Đang tự động thử lại (Lần {attempt}/3)...",
         autoRetryError: "❌ Lỗi: {msg}. Đang tự động thử lại (Lần {attempt}/3)...",
+        quotaUsage: "Cách dùng: /quota",
+        quotaTitle: "📊 *Thông tin hạn mức Antigravity*",
+        promptCredits: "Hạn mức prompt: {available}/{monthly} ({remaining}%)",
+        modelsTitle: "Các mẫu AI:",
+        noQuotaInfo: "Không tìm thấy thông tin hạn mức của mẫu AI nào.",
+        findingProcess: "🔍 Đang dò tìm tiến trình Antigravity và tải thông tin hạn mức...",
+        fetchError: "❌ Thất bại khi tải hạn mức: {msg}",
+        noProcessFound: "❌ Máy chủ ngôn ngữ Antigravity hiện không chạy.",
     },
     'zh': {
         welcome: "机器人已激活！您的聊天 ID：`${id}`\n\n输入 /help 查看命令。",

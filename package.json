@@ -37,6 +37,10 @@
             {
                 "command": "antigravity-telegram-control.registerCommands",
                 "title": "Telegram: Register Slash Commands"
+            },
+            {
+                "command": "antigravity-telegram-control.deleteCommands",
+                "title": "Telegram: Delete Slash Commands"
             }
         ],
         "viewsContainers": {
