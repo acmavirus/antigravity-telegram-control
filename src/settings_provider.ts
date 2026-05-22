@@ -66,6 +66,8 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                 case 'saveAuto':
                     try {
                         await config.update('autoRetry', data.autoRetry, vscode.ConfigurationTarget.Global);
+                        await config.update('autoAccept', data.autoAccept, vscode.ConfigurationTarget.Global);
+                        await config.update('autoAcceptInterval', data.autoAcceptInterval ?? 800, vscode.ConfigurationTarget.Global);
                         vscode.window.showInformationMessage('Automation settings updated!');
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save automation settings: ${e.message}`);
@@ -126,6 +128,8 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
             const agentsMsPath = config.get<string>('agentsMsPath') || '';
             const geminiMdPath = config.get<string>('geminiMdPath') || '';
             const autoRetry = config.get<boolean>('autoRetry') ?? false;
+            const autoAccept = config.get<boolean>('autoAccept') ?? false;
+            const autoAcceptInterval = config.get<number>('autoAcceptInterval') ?? 800;
 
             let agentsMs = '';
             let geminiMd = '';
@@ -141,7 +145,19 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                 console.error('Error reading agent files:', e);
             }
 
-            this._view.webview.html = getSettingsHtml(token, chatId, port, language, agentsMs, geminiMd, agentsMsPath, geminiMdPath, autoRetry);
+            this._view.webview.html = getSettingsHtml(
+                token,
+                chatId,
+                port,
+                language,
+                agentsMs,
+                geminiMd,
+                agentsMsPath,
+                geminiMdPath,
+                autoRetry,
+                autoAccept,
+                autoAcceptInterval
+            );
         }
     }
 }

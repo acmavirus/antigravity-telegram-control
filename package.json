@@ -2,7 +2,7 @@
     "name": "antigravity-telegram-control",
     "displayName": "Antigravity Telegram Control",
     "description": "Control Antigravity Agent via Telegram and take screenshots.",
-    "version": "0.0.7",
+    "version": "0.0.8",
     "publisher": "acmatvjrus",
     "repository": {
         "type": "git",
@@ -113,6 +113,16 @@
                     "type": "number",
                     "default": 60,
                     "description": "Interval in seconds to update the status bar"
+                },
+                "antigravityTelegramControl.autoAccept": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically accept Antigravity Agent steps and terminal commands locally (independent of Telegram)"
+                },
+                "antigravityTelegramControl.autoAcceptInterval": {
+                    "type": "number",
+                    "default": 800,
+                    "description": "Interval in milliseconds to check and auto-accept agent actions (minimum: 200ms)"
                 }
             }
         }

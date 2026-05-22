@@ -9,7 +9,9 @@ export function getSettingsHtml(
     geminiMd: string = '',
     agentsMsPath: string = '',
     geminiMdPath: string = '',
-    autoRetry: boolean = false
+    autoRetry: boolean = false,
+    autoAccept: boolean = false,
+    autoAcceptInterval: number = 800
 ): string {
     const languages = [
         { code: 'en', name: 'English' },
@@ -327,7 +329,17 @@ export function getSettingsHtml(
             
             <div class="field checkbox-field">
                 <input type="checkbox" id="auto-retry" ${autoRetry ? 'checked' : ''}>
-                <label for="auto-retry">Auto Retry (Tự động thử lại khi lỗi/timeout)</label>
+                <label for="auto-retry">Auto Retry (Tự động thử lại khi lỗi/timeout từ Telegram)</label>
+            </div>
+
+            <div class="field checkbox-field" style="margin-top: 16px;">
+                <input type="checkbox" id="auto-accept" ${autoAccept ? 'checked' : ''}>
+                <label for="auto-accept">Auto Accept (Tự động chấp nhận bước/lệnh của Agent cục bộ)</label>
+            </div>
+
+            <div class="field" style="margin-top: 12px;">
+                <label for="auto-accept-interval">Auto Accept Interval (Khoảng thời gian kiểm tra - ms)</label>
+                <input type="number" id="auto-accept-interval" value="${autoAcceptInterval}" placeholder="800" min="200">
             </div>
 
             <button id="save-auto">Save Automation Settings</button>
@@ -396,7 +408,9 @@ export function getSettingsHtml(
         document.getElementById('save-auto').addEventListener('click', () => {
             vscode.postMessage({
                 command: 'saveAuto',
-                autoRetry: document.getElementById('auto-retry').checked
+                autoRetry: document.getElementById('auto-retry').checked,
+                autoAccept: document.getElementById('auto-accept').checked,
+                autoAcceptInterval: parseInt(document.getElementById('auto-accept-interval').value) || 800
             });
             const msg = document.getElementById('auto-msg');
             msg.classList.add('show');

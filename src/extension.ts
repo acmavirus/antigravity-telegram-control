@@ -10,10 +10,12 @@ import { translations } from './i18n';
 import * as os from 'os';
 import { fetchQuotaInfo } from './quota_checker';
 import { StatusBarManager } from './status_bar';
+import { AutoAcceptManager } from './auto_accept';
 
 let bot: Telegraf | undefined;
 let lockManager: BotLockManager | undefined;
 let statusBarManager: StatusBarManager | undefined;
+let autoAcceptManager: AutoAcceptManager | undefined;
 
 class BotLockManager {
     private lockFile: string;
@@ -529,12 +531,17 @@ function stopBot(): void {
 export function activate(context: vscode.ExtensionContext) {
     lockManager = new BotLockManager(context);
     statusBarManager = new StatusBarManager(context);
+    autoAcceptManager = new AutoAcceptManager();
 
     // Sidebar settings panel
     const provider = new TelegramSettingsProvider(context.extensionUri);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(TelegramSettingsProvider.viewType, provider)
+        vscode.window.registerWebviewViewProvider(TelegramSettingsProvider.viewType, provider),
+        autoAcceptManager
     );
+
+    // Start auto accept if enabled
+    autoAcceptManager.start();
 
     // Commands
     context.subscriptions.push(
@@ -562,6 +569,13 @@ export function activate(context: vscode.ExtensionContext) {
                     await statusBarManager.update();
                 }
             }
+            if (e.affectsConfiguration('antigravityTelegramControl.autoAccept') ||
+                e.affectsConfiguration('antigravityTelegramControl.autoAcceptInterval') ||
+                e.affectsConfiguration('antigravityTelegramControl.debuggingPort')) {
+                if (autoAcceptManager) {
+                    autoAcceptManager.onConfigChanged();
+                }
+            }
         }),
 
         vscode.commands.registerCommand('antigravity-telegram-control.openSettings', () => {
@@ -586,6 +600,9 @@ export function activate(context: vscode.ExtensionContext) {
                 if (mdPath && fs.existsSync(mdPath)) geminiMd = fs.readFileSync(mdPath, 'utf8');
             } catch (e) { }
 
+            const autoAccept = cfg.get<boolean>('autoAccept') ?? false;
+            const autoAcceptInterval = cfg.get<number>('autoAcceptInterval') ?? 800;
+
             panel.webview.html = getSettingsHtml(
                 cfg.get('botToken') ?? '',
                 cfg.get('allowedChatId') ?? '',
@@ -595,7 +612,9 @@ export function activate(context: vscode.ExtensionContext) {
                 geminiMd,
                 agentsMsPath,
                 geminiMdPath,
-                cfg.get('autoRetry') ?? false
+                cfg.get('autoRetry') ?? false,
+                autoAccept,
+                autoAcceptInterval
             );
 
             panel.webview.onDidReceiveMessage(async (msg) => {
@@ -631,6 +650,8 @@ export function activate(context: vscode.ExtensionContext) {
                 if (msg.command === 'saveAuto') {
                     try {
                         await cfg.update('autoRetry', msg.autoRetry, vscode.ConfigurationTarget.Global);
+                        await cfg.update('autoAccept', msg.autoAccept, vscode.ConfigurationTarget.Global);
+                        await cfg.update('autoAcceptInterval', msg.autoAcceptInterval ?? 800, vscode.ConfigurationTarget.Global);
                         vscode.window.showInformationMessage('Automation settings updated!');
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save automation settings: ${e.message}`);
