@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { translations } from './i18n';
 
 export function getSettingsHtml(
     token: string,
@@ -11,8 +12,15 @@ export function getSettingsHtml(
     geminiMdPath: string = '',
     autoRetry: boolean = false,
     autoAccept: boolean = false,
-    autoAcceptInterval: number = 800
+    autoAcceptInterval: number = 800,
+    enableMirror: boolean = false,
+    mirrorPort: number = 9999,
+    mirrorToken: string = "",
+    enableTunnel: boolean = false,
+    tunnelType: string = 'localhost.run',
+    ngrokAuthToken: string = ''
 ): string {
+    const t = translations[language] || translations['en'];
     const languages = [
         { code: 'en', name: 'English' },
         { code: 'vi', name: 'Tiếng Việt' },
@@ -234,6 +242,7 @@ export function getSettingsHtml(
         <div class="tab active" data-target="settings-tab">Settings</div>
         <div class="tab" data-target="agents-tab">Agents</div>
         <div class="tab" data-target="auto-tab">Auto</div>
+        <div class="tab" data-target="mirror-tab">Mirror</div>
     </div>
 
     <div class="content-container">
@@ -329,21 +338,68 @@ export function getSettingsHtml(
             
             <div class="field checkbox-field">
                 <input type="checkbox" id="auto-retry" ${autoRetry ? 'checked' : ''}>
-                <label for="auto-retry">Auto Retry (Tự động thử lại khi lỗi/timeout từ Telegram)</label>
+                <label for="auto-retry">${t.autoRetryLabel || 'Auto Retry'}</label>
             </div>
 
             <div class="field checkbox-field" style="margin-top: 16px;">
                 <input type="checkbox" id="auto-accept" ${autoAccept ? 'checked' : ''}>
-                <label for="auto-accept">Auto Accept (Tự động chấp nhận bước/lệnh của Agent cục bộ)</label>
+                <label for="auto-accept">${t.autoAcceptLabel || 'Auto Accept'}</label>
             </div>
 
             <div class="field" style="margin-top: 12px;">
-                <label for="auto-accept-interval">Auto Accept Interval (Khoảng thời gian kiểm tra - ms)</label>
+                <label for="auto-accept-interval">${t.autoAcceptIntervalLabel || 'Auto Accept Interval (ms)'}</label>
                 <input type="number" id="auto-accept-interval" value="${autoAcceptInterval}" placeholder="800" min="200">
             </div>
 
-            <button id="save-auto">Save Automation Settings</button>
+            <button id="save-auto">${t.saveAutoBtn || 'Save Automation Settings'}</button>
             <div id="auto-msg" class="msg">✓ Automation settings saved.</div>
+        </div>
+
+        <!-- Mirror Tab -->
+        <div id="mirror-tab" class="tab-content">
+            <h2>Web Mirror Settings</h2>
+            
+            <div class="field checkbox-field">
+                <input type="checkbox" id="enable-mirror" ${enableMirror ? 'checked' : ''}>
+                <label for="enable-mirror">${t.enableMirrorLabel || 'Enable Web Mirror'}</label>
+            </div>
+
+            <div class="field" style="margin-top: 12px;">
+                <label for="mirror-port">${t.mirrorPortLabel || 'Mirror Port'}</label>
+                <input type="number" id="mirror-port" value="${mirrorPort}" placeholder="9999" min="1024" max="65535">
+            </div>
+
+            <div class="field" style="margin-top: 12px;">
+                <label for="mirror-token">${t.securityTokenLabel || 'Security Token'}</label>
+                <input type="text" id="mirror-token" value="${mirrorToken}" placeholder="e.g. secret_token_123">
+            </div>
+
+            <hr style="margin: 16px 0; border-top: 1px dashed var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,0.2));">
+            
+            <div class="field checkbox-field">
+                <input type="checkbox" id="enable-tunnel" ${enableTunnel ? 'checked' : ''}>
+                <label for="enable-tunnel">${t.enableTunnelLabel || 'Enable Tunnel'}</label>
+            </div>
+
+            <div class="field" id="tunnel-type-field" style="margin-top: 12px; display: ${enableTunnel ? 'block' : 'none'};">
+                <label for="tunnel-type">${t.tunnelTypeLabel || 'Tunnel Type'}</label>
+                <select id="tunnel-type">
+                    <option value="localhost.run" ${tunnelType === 'localhost.run' ? 'selected' : ''}>localhost.run (Free, No Auth)</option>
+                    <option value="ngrok" ${tunnelType === 'ngrok' ? 'selected' : ''}>ngrok (Stable)</option>
+                </select>
+            </div>
+
+            <div class="field" id="ngrok-token-field" style="margin-top: 12px; display: ${enableTunnel && tunnelType === 'ngrok' ? 'block' : 'none'};">
+                <label for="ngrok-token">${t.ngrokTokenLabel || 'Ngrok Authtoken'}</label>
+                <input type="text" id="ngrok-token" value="${ngrokAuthToken}" placeholder="Paste ngrok authtoken here...">
+            </div>
+
+            <button id="save-mirror">${t.saveMirrorBtn || 'Save Mirror Settings'}</button>
+            <div id="mirror-msg" class="msg">✓ Mirror settings saved.</div>
+
+            <div style="margin-top: 16px; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.5;">
+                ${(t.mirrorDescription || 'When enabled, you can access the web interface at: http://localhost:{port}{tokenUrl}').replace('{port}', mirrorPort.toString()).replace('{tokenUrl}', mirrorToken ? '/?token=' + mirrorToken : '')}
+            </div>
         </div>
     </div>
 
@@ -415,6 +471,42 @@ export function getSettingsHtml(
             const msg = document.getElementById('auto-msg');
             msg.classList.add('show');
             setTimeout(() => msg.classList.remove('show'), 3000);
+        });
+
+        // Save Mirror Settings
+        document.getElementById('save-mirror').addEventListener('click', () => {
+            const port = parseInt(document.getElementById('mirror-port').value) || 9999;
+            const token = document.getElementById('mirror-token').value;
+            vscode.postMessage({
+                command: 'saveMirror',
+                enableMirror: document.getElementById('enable-mirror').checked,
+                mirrorPort: port,
+                mirrorToken: token,
+                enableTunnel: document.getElementById('enable-tunnel').checked,
+                tunnelType: document.getElementById('tunnel-type').value,
+                ngrokAuthToken: document.getElementById('ngrok-token').value
+            });
+            const msg = document.getElementById('mirror-msg');
+            msg.classList.add('show');
+            setTimeout(() => msg.classList.remove('show'), 3000);
+
+            const portDisplay = document.getElementById('mirror-port-display');
+            if (portDisplay) portDisplay.textContent = port;
+        });
+
+        // Tunnel fields UI visibility toggle
+        const enableTunnelCheck = document.getElementById('enable-tunnel');
+        const tunnelTypeSelect = document.getElementById('tunnel-type');
+        const tunnelTypeField = document.getElementById('tunnel-type-field');
+        const ngrokTokenField = document.getElementById('ngrok-token-field');
+
+        enableTunnelCheck.addEventListener('change', () => {
+            tunnelTypeField.style.display = enableTunnelCheck.checked ? 'block' : 'none';
+            ngrokTokenField.style.display = (enableTunnelCheck.checked && tunnelTypeSelect.value === 'ngrok') ? 'block' : 'none';
+        });
+
+        tunnelTypeSelect.addEventListener('change', () => {
+            ngrokTokenField.style.display = (enableTunnelCheck.checked && tunnelTypeSelect.value === 'ngrok') ? 'block' : 'none';
         });
 
         document.getElementById('autofind').addEventListener('click', () => {

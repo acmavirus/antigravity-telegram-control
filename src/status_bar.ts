@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { fetchQuotaInfo, QuotaSnapshot } from './quota_checker';
+import { t } from './i18n';
 
 export class StatusBarManager implements vscode.Disposable {
     private item: vscode.StatusBarItem;
@@ -48,12 +49,10 @@ export class StatusBarManager implements vscode.Disposable {
             const errMessage = e.message || '';
             if (errMessage.toLowerCase().includes('process not found') || errMessage.toLowerCase().includes('not found')) {
                 this.item.text = `$(circle-slash) Antigravity`;
-                this.item.tooltip = lang === 'vi'
-                    ? 'Máy chủ ngôn ngữ Antigravity hiện không chạy.'
-                    : 'Antigravity language server is not running.';
+                this.item.tooltip = t('noProcessFound');
             } else {
                 this.item.text = `$(warning) Antigravity`;
-                this.item.tooltip = (lang === 'vi' ? 'Lỗi tải hạn mức: ' : 'Failed to fetch quota: ') + errMessage;
+                this.item.tooltip = t('fetchError', { msg: errMessage });
             }
             this.item.show();
         }
@@ -65,7 +64,7 @@ export class StatusBarManager implements vscode.Disposable {
         const lang = vscode.workspace.getConfiguration('antigravityTelegramControl').get<string>('language') ?? 'en';
 
         // Add table header for markdown
-        tooltipRows.push('| Quota Type | Status | Reset Time |');
+        tooltipRows.push(`| ${t('quotaTypeLabel')} | ${t('statusLabel')} | ${t('resetTimeLabel')} |`);
         tooltipRows.push('|:---|---:|:---|');
 
         // 2. Flow Credits (if available)
@@ -78,7 +77,7 @@ export class StatusBarManager implements vscode.Disposable {
             parts.push(`${statusEmoji} Fls ${pct}%`);
 
             // For tooltip table
-            const label = lang === 'vi' ? 'Hạn mức Flow' : 'Flow Credits';
+            const label = t('flowCreditsLabel');
             tooltipRows.push(`| ${statusEmoji} ${label} | ${fc.available}/${fc.monthly} (${pct}%) | |`);
         }
 
@@ -92,7 +91,7 @@ export class StatusBarManager implements vscode.Disposable {
             parts.push(`💳 ${this.formatCredits(pc.available)}`);
 
             // For tooltip table
-            const label = lang === 'vi' ? 'Hạn mức Prompt' : 'Prompt Credits';
+            const label = t('promptCreditsLabel');
             tooltipRows.push(`| 💳 ${label} | ${pc.available}/${pc.monthly} (${pct}%) | |`);
         }
 

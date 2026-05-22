@@ -2,7 +2,7 @@
     "name": "antigravity-telegram-control",
     "displayName": "Antigravity Telegram Control",
     "description": "Control Antigravity Agent via Telegram and take screenshots.",
-    "version": "0.0.7",
+    "version": "0.0.8",
     "publisher": "acmatvjrus",
     "repository": {
         "type": "git",
@@ -123,6 +123,40 @@
                     "type": "number",
                     "default": 800,
                     "description": "Interval in milliseconds to check and auto-accept agent actions (minimum: 200ms)"
+                },
+                "antigravityTelegramControl.enableMirror": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable local Web Mirror server to stream and interact with the Agent chat panel in any browser"
+                },
+                "antigravityTelegramControl.mirrorPort": {
+                    "type": "number",
+                    "default": 9999,
+                    "description": "Port to run the Web Mirror HTTP/WebSocket server (default: 9999)"
+                },
+                "antigravityTelegramControl.mirrorToken": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional security token. If set, accessing the web interface requires appending ?token=YOUR_TOKEN"
+                },
+                "antigravityTelegramControl.enableTunnel": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable automatic tunneling to expose the Web Mirror to the public internet"
+                },
+                "antigravityTelegramControl.tunnelType": {
+                    "type": "string",
+                    "default": "localhost.run",
+                    "enum": [
+                        "localhost.run",
+                        "ngrok"
+                    ],
+                    "description": "Tunnel provider to use"
+                },
+                "antigravityTelegramControl.ngrokAuthToken": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Ngrok Authtoken (required if using ngrok and not configured globally)"
                 }
             }
         }

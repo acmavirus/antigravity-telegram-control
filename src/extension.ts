@@ -6,16 +6,18 @@ import * as path from 'path';
 import { getSettingsHtml } from './settings_view';
 import { TelegramSettingsProvider } from './settings_provider';
 import { sendViaCDP, waitForAgentResponse, captureAgentScreenshot, stopAgent, clickRetryButton } from './cdp_chat';
-import { translations } from './i18n';
+import { translations, t } from './i18n';
 import * as os from 'os';
 import { fetchQuotaInfo } from './quota_checker';
 import { StatusBarManager } from './status_bar';
 import { AutoAcceptManager } from './auto_accept';
+import { MirrorServerManager } from './mirror_server';
 
 let bot: Telegraf | undefined;
 let lockManager: BotLockManager | undefined;
 let statusBarManager: StatusBarManager | undefined;
 let autoAcceptManager: AutoAcceptManager | undefined;
+let mirrorServerManager: MirrorServerManager | undefined;
 
 class BotLockManager {
     private lockFile: string;
@@ -78,16 +80,7 @@ function getLanguage(): string {
     return vscode.workspace.getConfiguration('antigravityTelegramControl').get<string>('language') ?? 'en';
 }
 
-function t(key: keyof typeof translations['en'], params: Record<string, string> = {}): string {
-    const lang = getLanguage();
-    const tranSet = translations[lang] || translations['en'];
-    let text = tranSet[key] || translations['en'][key] || '';
 
-    for (const [pk, pv] of Object.entries(params)) {
-        text = text.replace(`{${pk}}`, pv);
-    }
-    return text;
-}
 
 const SLASH_COMMANDS = [
     { command: 'start', description: 'Start the bot and get your Chat ID' },
@@ -532,16 +525,21 @@ export function activate(context: vscode.ExtensionContext) {
     lockManager = new BotLockManager(context);
     statusBarManager = new StatusBarManager(context);
     autoAcceptManager = new AutoAcceptManager();
+    mirrorServerManager = new MirrorServerManager();
 
     // Sidebar settings panel
     const provider = new TelegramSettingsProvider(context.extensionUri);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(TelegramSettingsProvider.viewType, provider),
-        autoAcceptManager
+        autoAcceptManager,
+        mirrorServerManager
     );
 
     // Start auto accept if enabled
     autoAcceptManager.start();
+
+    // Start mirror server if enabled
+    mirrorServerManager.start();
 
     // Commands
     context.subscriptions.push(
@@ -576,6 +574,17 @@ export function activate(context: vscode.ExtensionContext) {
                     autoAcceptManager.onConfigChanged();
                 }
             }
+            if (e.affectsConfiguration('antigravityTelegramControl.enableMirror') ||
+                e.affectsConfiguration('antigravityTelegramControl.mirrorPort') ||
+                e.affectsConfiguration('antigravityTelegramControl.mirrorToken') ||
+                e.affectsConfiguration('antigravityTelegramControl.debuggingPort') ||
+                e.affectsConfiguration('antigravityTelegramControl.enableTunnel') ||
+                e.affectsConfiguration('antigravityTelegramControl.tunnelType') ||
+                e.affectsConfiguration('antigravityTelegramControl.ngrokAuthToken')) {
+                if (mirrorServerManager) {
+                    mirrorServerManager.onConfigChanged();
+                }
+            }
         }),
 
         vscode.commands.registerCommand('antigravity-telegram-control.openSettings', () => {
@@ -602,6 +611,9 @@ export function activate(context: vscode.ExtensionContext) {
 
             const autoAccept = cfg.get<boolean>('autoAccept') ?? false;
             const autoAcceptInterval = cfg.get<number>('autoAcceptInterval') ?? 800;
+            const enableMirror = cfg.get<boolean>('enableMirror') ?? false;
+            const mirrorPort = cfg.get<number>('mirrorPort') ?? 9999;
+            const mirrorToken = cfg.get<string>('mirrorToken') ?? '';
 
             panel.webview.html = getSettingsHtml(
                 cfg.get('botToken') ?? '',
@@ -614,7 +626,10 @@ export function activate(context: vscode.ExtensionContext) {
                 geminiMdPath,
                 cfg.get('autoRetry') ?? false,
                 autoAccept,
-                autoAcceptInterval
+                autoAcceptInterval,
+                enableMirror,
+                mirrorPort,
+                mirrorToken
             );
 
             panel.webview.onDidReceiveMessage(async (msg) => {
@@ -655,6 +670,16 @@ export function activate(context: vscode.ExtensionContext) {
                         vscode.window.showInformationMessage('Automation settings updated!');
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save automation settings: ${e.message}`);
+                    }
+                }
+                if (msg.command === 'saveMirror') {
+                    try {
+                        await cfg.update('enableMirror', msg.enableMirror, vscode.ConfigurationTarget.Global);
+                        await cfg.update('mirrorPort', msg.mirrorPort ?? 9999, vscode.ConfigurationTarget.Global);
+                        await cfg.update('mirrorToken', msg.mirrorToken || '', vscode.ConfigurationTarget.Global);
+                        vscode.window.showInformationMessage('Web Mirror settings updated!');
+                    } catch (e: any) {
+                        vscode.window.showErrorMessage(`Failed to save Web Mirror settings: ${e.message}`);
                     }
                 }
                 if (msg.command === 'autofind') {
@@ -765,5 +790,13 @@ export function deactivate() {
     lockManager?.releaseLock();
     if (statusBarManager) {
         statusBarManager.dispose();
+    }
+}
+
+export function sendBotMessage(text: string, options: any = {}) {
+    if (bot && getAllowedChatId()) {
+        bot.telegram.sendMessage(getAllowedChatId()!, text, options).catch(e => {
+            console.error('[Telegram] Failed to send notification message:', e);
+        });
     }
 }

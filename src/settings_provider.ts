@@ -74,6 +74,20 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                     }
                     break;
 
+                case 'saveMirror':
+                    try {
+                        await config.update('enableMirror', data.enableMirror, vscode.ConfigurationTarget.Global);
+                        await config.update('mirrorPort', data.mirrorPort ?? 9999, vscode.ConfigurationTarget.Global);
+                        await config.update('mirrorToken', data.mirrorToken || '', vscode.ConfigurationTarget.Global);
+                        await config.update('enableTunnel', data.enableTunnel, vscode.ConfigurationTarget.Global);
+                        await config.update('tunnelType', data.tunnelType || 'localhost.run', vscode.ConfigurationTarget.Global);
+                        await config.update('ngrokAuthToken', data.ngrokAuthToken || '', vscode.ConfigurationTarget.Global);
+                        vscode.window.showInformationMessage('Web Mirror settings updated!');
+                    } catch (e: any) {
+                        vscode.window.showErrorMessage(`Failed to save Web Mirror settings: ${e.message}`);
+                    }
+                    break;
+
                 case 'autofind':
                     try {
                         const home = os.homedir();
@@ -130,6 +144,12 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
             const autoRetry = config.get<boolean>('autoRetry') ?? false;
             const autoAccept = config.get<boolean>('autoAccept') ?? false;
             const autoAcceptInterval = config.get<number>('autoAcceptInterval') ?? 800;
+            const enableMirror = config.get<boolean>('enableMirror') ?? false;
+            const mirrorPort = config.get<number>('mirrorPort') ?? 9999;
+            const mirrorToken = config.get<string>('mirrorToken') || '';
+            const enableTunnel = config.get<boolean>('enableTunnel') ?? false;
+            const tunnelType = config.get<string>('tunnelType') || 'localhost.run';
+            const ngrokAuthToken = config.get<string>('ngrokAuthToken') || '';
 
             let agentsMs = '';
             let geminiMd = '';
@@ -156,7 +176,13 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                 geminiMdPath,
                 autoRetry,
                 autoAccept,
-                autoAcceptInterval
+                autoAcceptInterval,
+                enableMirror,
+                mirrorPort,
+                mirrorToken,
+                enableTunnel,
+                tunnelType,
+                ngrokAuthToken
             );
         }
     }
