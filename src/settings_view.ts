@@ -385,6 +385,7 @@ export function getSettingsHtml(
                 <label for="tunnel-type">${t.tunnelTypeLabel || 'Tunnel Type'}</label>
                 <select id="tunnel-type">
                     <option value="localhost.run" ${tunnelType === 'localhost.run' ? 'selected' : ''}>localhost.run (Free, No Auth)</option>
+                    <option value="cloudflare" ${tunnelType === 'cloudflare' ? 'selected' : ''}>Cloudflare Tunnel (Free, Fast)</option>
                     <option value="ngrok" ${tunnelType === 'ngrok' ? 'selected' : ''}>ngrok (Stable)</option>
                 </select>
             </div>

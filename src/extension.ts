@@ -614,6 +614,9 @@ export function activate(context: vscode.ExtensionContext) {
             const enableMirror = cfg.get<boolean>('enableMirror') ?? false;
             const mirrorPort = cfg.get<number>('mirrorPort') ?? 9999;
             const mirrorToken = cfg.get<string>('mirrorToken') ?? '';
+            const enableTunnel = cfg.get<boolean>('enableTunnel') ?? false;
+            const tunnelType = cfg.get<string>('tunnelType') ?? 'localhost.run';
+            const ngrokAuthToken = cfg.get<string>('ngrokAuthToken') ?? '';
 
             panel.webview.html = getSettingsHtml(
                 cfg.get('botToken') ?? '',
@@ -629,7 +632,10 @@ export function activate(context: vscode.ExtensionContext) {
                 autoAcceptInterval,
                 enableMirror,
                 mirrorPort,
-                mirrorToken
+                mirrorToken,
+                enableTunnel,
+                tunnelType,
+                ngrokAuthToken
             );
 
             panel.webview.onDidReceiveMessage(async (msg) => {
@@ -677,6 +683,9 @@ export function activate(context: vscode.ExtensionContext) {
                         await cfg.update('enableMirror', msg.enableMirror, vscode.ConfigurationTarget.Global);
                         await cfg.update('mirrorPort', msg.mirrorPort ?? 9999, vscode.ConfigurationTarget.Global);
                         await cfg.update('mirrorToken', msg.mirrorToken || '', vscode.ConfigurationTarget.Global);
+                        await cfg.update('enableTunnel', msg.enableTunnel, vscode.ConfigurationTarget.Global);
+                        await cfg.update('tunnelType', msg.tunnelType || 'localhost.run', vscode.ConfigurationTarget.Global);
+                        await cfg.update('ngrokAuthToken', msg.ngrokAuthToken || '', vscode.ConfigurationTarget.Global);
                         vscode.window.showInformationMessage('Web Mirror settings updated!');
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save Web Mirror settings: ${e.message}`);

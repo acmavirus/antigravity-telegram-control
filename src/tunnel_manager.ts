@@ -17,6 +17,8 @@ export class TunnelManager {
             return this.startNgrok(port, ngrokAuthToken);
         } else if (type === 'localhost.run') {
             return this.startLocalhostRun(port);
+        } else if (type === 'cloudflare') {
+            return this.startCloudflare(port);
         } else {
             throw new Error(`Unsupported tunnel type: ${type}`);
         }
@@ -88,6 +90,59 @@ export class TunnelManager {
                 if (!isResolved) {
                     clearTimeout(timeoutTimer);
                     reject(new Error(`ssh process exited with code ${code}`));
+                }
+            });
+        });
+    }
+
+    private static startCloudflare(port: number): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const args = ['tunnel', '--url', `http://127.0.0.1:${port}`];
+
+            this.outputChannel.appendLine(`[Tunnel] Spawning command: cloudflared ${args.join(' ')}`);
+            const proc = cp.spawn('cloudflared', args);
+            this.activeProcess = proc;
+
+            let isResolved = false;
+            const timeoutTimer = setTimeout(() => {
+                if (!isResolved) {
+                    this.stopTunnel();
+                    reject(new Error('Cloudflare Tunnel connection timed out (30s)'));
+                }
+            }, 30000);
+
+            const handleData = (data: Buffer) => {
+                const text = data.toString();
+                this.outputChannel.append(text);
+
+                const match = text.match(/https?:\/\/[a-zA-Z0-9-.]+\.trycloudflare\.com/);
+                if (match) {
+                    isResolved = true;
+                    clearTimeout(timeoutTimer);
+                    resolve(match[0]);
+                }
+            };
+
+            proc.stdout?.on('data', handleData);
+            proc.stderr?.on('data', handleData);
+
+            proc.on('error', (err: any) => {
+                this.outputChannel.appendLine(`[Tunnel] cloudflared process error: ${err.message}`);
+                if (!isResolved) {
+                    clearTimeout(timeoutTimer);
+                    if (err.code === 'ENOENT') {
+                        reject(new Error("cloudflared is not installed or not in PATH. Please install it first."));
+                    } else {
+                        reject(err);
+                    }
+                }
+            });
+
+            proc.on('exit', (code) => {
+                this.outputChannel.appendLine(`[Tunnel] cloudflared process exited with code ${code}`);
+                if (!isResolved) {
+                    clearTimeout(timeoutTimer);
+                    reject(new Error(`cloudflared process exited with code ${code}`));
                 }
             });
         });

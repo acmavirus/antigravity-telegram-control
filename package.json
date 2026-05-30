@@ -149,6 +149,7 @@
                     "default": "localhost.run",
                     "enum": [
                         "localhost.run",
+                        "cloudflare",
                         "ngrok"
                     ],
                     "description": "Tunnel provider to use"

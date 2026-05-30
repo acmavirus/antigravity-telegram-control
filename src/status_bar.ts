@@ -63,8 +63,8 @@ export class StatusBarManager implements vscode.Disposable {
         const tooltipRows: string[] = [];
         const lang = vscode.workspace.getConfiguration('antigravityTelegramControl').get<string>('language') ?? 'en';
 
-        // Add table header for markdown
-        tooltipRows.push(`| ${t('quotaTypeLabel')} | ${t('statusLabel')} | ${t('resetTimeLabel')} |`);
+        // Add table header for markdown with extra spacing
+        tooltipRows.push(`| &nbsp;&nbsp;&nbsp;&nbsp; **${t('quotaTypeLabel')}** &nbsp;&nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp;&nbsp; **${t('statusLabel')}** &nbsp;&nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp;&nbsp; **${t('resetTimeLabel')}** &nbsp;&nbsp;&nbsp;&nbsp; |`);
         tooltipRows.push('|:---|---:|:---|');
 
         // 2. Flow Credits (if available)
@@ -78,7 +78,7 @@ export class StatusBarManager implements vscode.Disposable {
 
             // For tooltip table
             const label = t('flowCreditsLabel');
-            tooltipRows.push(`| ${statusEmoji} ${label} | ${fc.available}/${fc.monthly} (${pct}%) | |`);
+            tooltipRows.push(`| <br>&nbsp;&nbsp; ${statusEmoji} ${label} &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; **${fc.available.toLocaleString()}** / ${fc.monthly.toLocaleString()} (${pct}%) &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; -- &nbsp;&nbsp;<br>&nbsp; |`);
         }
 
         // 3. Prompt Credits (if available)
@@ -92,7 +92,7 @@ export class StatusBarManager implements vscode.Disposable {
 
             // For tooltip table
             const label = t('promptCreditsLabel');
-            tooltipRows.push(`| 💳 ${label} | ${pc.available}/${pc.monthly} (${pct}%) | |`);
+            tooltipRows.push(`| <br>&nbsp;&nbsp; 💳 ${label} &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; **${pc.available.toLocaleString()}** / ${pc.monthly.toLocaleString()} (${pct}%) &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; -- &nbsp;&nbsp;<br>&nbsp; |`);
         }
 
         // 4. Models Quota
@@ -113,7 +113,7 @@ export class StatusBarManager implements vscode.Disposable {
             snapshot.models.forEach(model => {
                 const pct = model.remaining_percentage !== undefined ? Math.round(model.remaining_percentage) : 100;
                 const statusEmoji = this.getStatusEmoji(pct);
-                tooltipRows.push(`| ${statusEmoji} ${model.label} | ${pct}% | ⏱ ${model.time_until_reset_formatted} |`);
+                tooltipRows.push(`| <br>&nbsp;&nbsp; ${statusEmoji} ${model.label} &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; **${pct}%** &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; ⏱ ${model.time_until_reset_formatted} &nbsp;&nbsp;<br>&nbsp; |`);
             });
         }
 
