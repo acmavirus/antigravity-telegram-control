@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as http from 'http';
 import * as url from 'url';
+import * as fs from 'fs';
+import * as path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { sendViaCDP, stopAgent, clickRetryButton } from './cdp_chat';
 import { TunnelManager } from './tunnel_manager';
@@ -17,7 +19,7 @@ interface CdpTarget {
 export class MirrorServerManager implements vscode.Disposable {
     private server: http.Server | undefined;
     private wss: WebSocketServer | undefined;
-    
+
     private cdpWs: WebSocket | undefined;
     private cdpMsgId = 1;
     private cdpScanTimer: NodeJS.Timeout | undefined;
@@ -33,7 +35,7 @@ export class MirrorServerManager implements vscode.Disposable {
     private port = 9999;
     private token = '';
     private debuggingPort = 9222;
-    
+
     private enableTunnel = false;
     private tunnelType = 'localhost.run';
     private ngrokAuthToken = '';
@@ -70,7 +72,7 @@ export class MirrorServerManager implements vscode.Disposable {
         try {
             this.server = http.createServer((req, res) => {
                 const parsedUrl = url.parse(req.url || '', true);
-                
+
                 // Serve the HTML remote client page on /
                 if (parsedUrl.pathname === '/') {
                     const reqToken = parsedUrl.query.token as string || '';
@@ -85,6 +87,21 @@ export class MirrorServerManager implements vscode.Disposable {
                     return;
                 }
 
+                // Serve the extension logo
+                if (parsedUrl.pathname === '/logo.png') {
+                    const logoPath = path.join(__dirname, '..', 'resources', 'logo.png');
+                    fs.readFile(logoPath, (err, data) => {
+                        if (err) {
+                            res.writeHead(404);
+                            res.end();
+                        } else {
+                            res.writeHead(200, { 'Content-Type': 'image/png' });
+                            res.end(data);
+                        }
+                    });
+                    return;
+                }
+
                 res.writeHead(404);
                 res.end();
             });
@@ -95,7 +112,7 @@ export class MirrorServerManager implements vscode.Disposable {
             this.server.on('upgrade', (request, socket, head) => {
                 const parsedUrl = url.parse(request.url || '', true);
                 const reqToken = parsedUrl.query.token as string || '';
-                
+
                 if (this.token && reqToken !== this.token) {
                     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
                     socket.destroy();
@@ -144,7 +161,7 @@ export class MirrorServerManager implements vscode.Disposable {
                             // Send notification to Telegram
                             import('./extension').then((ext) => {
                                 ext.sendBotMessage(t('tunnelActiveBot', { url: formattedUrl }));
-                            }).catch(() => {});
+                            }).catch(() => { });
                         })
                         .catch((err) => {
                             console.error(`[MirrorServer] Failed to establish tunnel: ${err.message}`);
@@ -154,7 +171,7 @@ export class MirrorServerManager implements vscode.Disposable {
             });
 
             this.isRunning = true;
-            
+
             // Start background target scanning loop
             this.startCdpScanner();
 
@@ -175,17 +192,17 @@ export class MirrorServerManager implements vscode.Disposable {
 
         // Close all web clients
         for (const ws of this.webClients) {
-            try { ws.close(); } catch (e) {}
+            try { ws.close(); } catch (e) { }
         }
         this.webClients.clear();
 
         if (this.wss) {
-            try { this.wss.close(); } catch (e) {}
+            try { this.wss.close(); } catch (e) { }
             this.wss = undefined;
         }
 
         if (this.server) {
-            try { this.server.close(); } catch (e) {}
+            try { this.server.close(); } catch (e) { }
             this.server = undefined;
         }
 
@@ -207,9 +224,9 @@ export class MirrorServerManager implements vscode.Disposable {
 
         this.loadSettings();
 
-        if (this.enabled !== oldEnabled || 
-            this.port !== oldPort || 
-            this.token !== oldToken || 
+        if (this.enabled !== oldEnabled ||
+            this.port !== oldPort ||
+            this.token !== oldToken ||
             this.debuggingPort !== oldDebuggingPort ||
             this.enableTunnel !== oldEnableTunnel ||
             this.tunnelType !== oldTunnelType ||
@@ -246,9 +263,9 @@ export class MirrorServerManager implements vscode.Disposable {
                         method: 'Page.stopScreencast'
                     }));
                 }
-            } catch (e) {}
+            } catch (e) { }
 
-            try { this.cdpWs.close(); } catch (e) {}
+            try { this.cdpWs.close(); } catch (e) { }
             this.cdpWs = undefined;
             console.log('[MirrorServer] Disconnected from Agent CDP webview.');
         }
@@ -271,10 +288,10 @@ export class MirrorServerManager implements vscode.Disposable {
 
             this.cdpWs.on('open', () => {
                 console.log('[MirrorServer] CDP WebSocket connected. Enabling Page and starting screencast...');
-                
+
                 this.cdpWs?.send(JSON.stringify({ id: this.cdpMsgId++, method: 'Page.enable' }));
                 this.cdpWs?.send(JSON.stringify({ id: this.cdpMsgId++, method: 'Runtime.enable' }));
-                
+
                 // Start screencast
                 this.cdpWs?.send(JSON.stringify({
                     id: this.cdpMsgId++,
@@ -294,7 +311,7 @@ export class MirrorServerManager implements vscode.Disposable {
             this.cdpWs.on('message', (data) => {
                 try {
                     const msg = JSON.parse(data.toString());
-                    
+
                     if (msg.id === this.cropRectMsgId) {
                         const val = msg.result?.result?.value;
                         if (val && typeof val === 'object' && val.width > 0 && val.height > 0) {
@@ -326,7 +343,7 @@ export class MirrorServerManager implements vscode.Disposable {
                             params: { sessionId: msg.params.sessionId }
                         }));
                     }
-                } catch (e) {}
+                } catch (e) { }
             });
 
             this.cdpWs.on('close', () => {
@@ -483,7 +500,7 @@ export class MirrorServerManager implements vscode.Disposable {
                     returnByValue: true
                 }
             }));
-        } catch (e) {}
+        } catch (e) { }
     }
 
     private broadcast(obj: any) {
@@ -516,7 +533,7 @@ export class MirrorServerManager implements vscode.Disposable {
                             clickCount: 1
                         }
                     }));
-                    
+
                     // Dispatch mouse released
                     this.cdpWs.send(JSON.stringify({
                         id: this.cdpMsgId++,
@@ -529,7 +546,7 @@ export class MirrorServerManager implements vscode.Disposable {
                             clickCount: 1
                         }
                     }));
-                } catch (e) {}
+                } catch (e) { }
                 break;
 
             case 'sendMessage':
@@ -549,14 +566,14 @@ export class MirrorServerManager implements vscode.Disposable {
                 console.log('[MirrorServer] Requesting Stop Agent');
                 try {
                     await stopAgent(this.debuggingPort);
-                } catch (e) {}
+                } catch (e) { }
                 break;
 
             case 'clickRetry':
                 console.log('[MirrorServer] Requesting Retry click');
                 try {
                     await clickRetryButton(this.debuggingPort);
-                } catch (e) {}
+                } catch (e) { }
                 break;
         }
     }
@@ -566,8 +583,9 @@ export class MirrorServerManager implements vscode.Disposable {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>${t('mirrorTitle')}</title>
+    <link rel="icon" type="image/png" href="/logo.png">
     <style>
         :root {
             --bg-color: #1e1e2e;
@@ -581,16 +599,31 @@ export class MirrorServerManager implements vscode.Disposable {
             --success-color: #a6e3a1;
             --error-color: #f38ba8;
             --warn-color: #f9e2af;
+
+            /* Typography */
+            --body-font-size: 14px;
+            --title-font-size: 16px;
+            --badge-font-size: 12px;
+            --hint-font-size: 12px;
+            --input-font-size: 14px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body {
+            height: 100%;
+            height: -webkit-fill-available;
+            margin: 0;
+            padding: 0;
+        }
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: var(--bg-color);
             color: var(--text-color);
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            height: 100%;
+            height: 100dvh;
             overflow: hidden;
+            font-size: var(--body-font-size);
         }
         header {
             background: var(--panel-bg);
@@ -606,12 +639,18 @@ export class MirrorServerManager implements vscode.Disposable {
             align-items: center;
             gap: 12px;
         }
+        .header-logo {
+            width: 24px;
+            height: 24px;
+            object-fit: contain;
+            border-radius: 4px;
+        }
         h1 {
-            font-size: 16px;
+            font-size: var(--title-font-size);
             font-weight: 600;
         }
         .status-badge {
-            font-size: 11px;
+            font-size: var(--badge-font-size);
             padding: 4px 8px;
             border-radius: 12px;
             font-weight: 500;
@@ -655,17 +694,22 @@ export class MirrorServerManager implements vscode.Disposable {
             border: none;
             padding: 6px 12px;
             border-radius: 6px;
-            font-size: 13px;
+            font-size: var(--input-font-size);
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
-            display: flex;
+            display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
             outline: none;
         }
         button:hover {
             background: var(--accent-hover);
+        }
+        .controls button {
+            height: 32px;
+            padding: 0 12px;
         }
         button.secondary {
             background: rgba(255,255,255,0.08);
@@ -685,13 +729,14 @@ export class MirrorServerManager implements vscode.Disposable {
         }
         main {
             flex: 1;
+            min-height: 0;
             position: relative;
             display: flex;
             justify-content: center;
             align-items: center;
             padding: 20px;
             background: radial-gradient(circle at center, #242437 0%, #11111b 100%);
-            overflow: auto;
+            overflow: hidden;
         }
         .canvas-container {
             position: relative;
@@ -706,6 +751,7 @@ export class MirrorServerManager implements vscode.Disposable {
         canvas {
             display: block;
             max-width: 100%;
+            max-height: 100%;
             object-fit: contain;
         }
         .overlay {
@@ -740,43 +786,154 @@ export class MirrorServerManager implements vscode.Disposable {
             padding: 16px 20px;
             display: flex;
             gap: 12px;
-            align-items: center;
+            align-items: flex-end;
             z-index: 10;
         }
         .input-group {
             flex: 1;
             position: relative;
         }
-        input[type="text"] {
+        textarea#chatInput {
             width: 100%;
             background: var(--input-bg);
             border: 1px solid var(--border-color);
             color: var(--text-color);
             padding: 12px 16px;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: var(--input-font-size);
             outline: none;
             transition: border-color 0.2s ease;
+            resize: none;
+            height: 44px;
+            max-height: 150px;
+            font-family: inherit;
+            line-height: 1.4;
+            display: block;
         }
-        input[type="text"]:focus {
+        textarea#chatInput:focus {
             border-color: var(--accent-color);
         }
+        #sendBtn {
+            height: 44px;
+            padding: 0 20px;
+            font-size: var(--input-font-size);
+            font-weight: 600;
+            border-radius: 8px;
+            white-space: nowrap;
+        }
         .footer-hint {
-            font-size: 11px;
+            font-size: var(--hint-font-size);
             color: var(--text-muted);
             text-align: center;
             padding-bottom: 8px;
             background: var(--panel-bg);
+        }
+
+        /* Responsive styling for mobile devices */
+        @media (max-width: 600px) {
+            :root {
+                --body-font-size: 13px;
+                --title-font-size: 14px;
+                --badge-font-size: 10px;
+                --hint-font-size: 10px;
+                --input-font-size: 13px;
+            }
+            header {
+                padding: 8px 12px;
+                gap: 6px;
+            }
+            .title-group {
+                gap: 6px;
+            }
+            .header-logo {
+                width: 20px;
+                height: 20px;
+            }
+            .status-badge {
+                padding: 2px 6px;
+                gap: 4px;
+            }
+            .status-dot {
+                width: 6px;
+                height: 6px;
+            }
+            .controls {
+                gap: 4px;
+            }
+            .controls button {
+                height: 28px;
+                padding: 0 8px;
+                font-size: 11px;
+                border-radius: 4px;
+            }
+            main {
+                padding: 10px;
+            }
+            .canvas-container {
+                border-radius: 8px;
+            }
+            .footer-hint {
+                padding-bottom: 4px;
+            }
+            footer {
+                padding: 10px 12px;
+                gap: 8px;
+            }
+            textarea#chatInput {
+                padding: 9px 12px;
+                border-radius: 6px;
+                height: 38px;
+            }
+            #sendBtn {
+                height: 38px;
+                padding: 0 14px;
+                border-radius: 6px;
+            }
+        }
+
+        /* Keep layout clean and visible even on very short heights (e.g. landscape or keyboard open) */
+        @media (max-height: 520px) {
+            :root {
+                --body-font-size: 12px;
+                --title-font-size: 13px;
+                --badge-font-size: 10px;
+                --input-font-size: 12px;
+            }
+            header {
+                padding: 6px 12px;
+            }
+            .controls button {
+                height: 26px;
+                padding: 0 8px;
+                font-size: 10px;
+            }
+            main {
+                padding: 4px;
+            }
+            .footer-hint {
+                display: none;
+            }
+            footer {
+                padding: 8px 12px;
+            }
+            textarea#chatInput {
+                padding: 7px 10px;
+                height: 32px;
+            }
+            #sendBtn {
+                height: 32px;
+                padding: 0 12px;
+            }
         }
     </style>
 </head>
 <body>
     <header>
         <div class="title-group">
-            <h1>${t('mirrorTitle')}</h1>
+            <img src="/logo.png" alt="Logo" class="header-logo">
             <div id="statusBadge" class="status-badge connecting">
                 <span class="status-dot"></span>
-                <span id="statusText">${t('mirrorConnecting')}</span>
+                <span id="statusText"></span>
             </div>
         </div>
         <div class="controls">
@@ -794,13 +951,10 @@ export class MirrorServerManager implements vscode.Disposable {
             <canvas id="mirrorCanvas"></canvas>
         </div>
     </main>
-
-    <div class="footer-hint">
-        ${t('mirrorHint')}
-    </div>
+    
     <footer>
         <div class="input-group">
-            <input type="text" id="chatInput" placeholder="${t('mirrorInputPlaceholder')}" autocomplete="off">
+            <textarea id="chatInput" placeholder="${t('mirrorInputPlaceholder')}" autocomplete="off" rows="1"></textarea>
         </div>
         <button id="sendBtn">${t('mirrorSendBtn')}</button>
     </footer>
@@ -924,6 +1078,15 @@ export class MirrorServerManager implements vscode.Disposable {
             }
         });
 
+        function adjustInputHeight() {
+            chatInput.style.height = 'auto';
+            const isMobile = window.innerWidth <= 600;
+            const isShort = window.innerHeight <= 520;
+            const defaultHeight = isShort ? 32 : (isMobile ? 38 : 44);
+            const newHeight = Math.min(chatInput.scrollHeight, 150);
+            chatInput.style.height = Math.max(defaultHeight, newHeight) + 'px';
+        }
+
         function sendMessage() {
             const text = chatInput.value.trim();
             if (text && ws && ws.readyState === WebSocket.OPEN) {
@@ -932,12 +1095,17 @@ export class MirrorServerManager implements vscode.Disposable {
                     text: text
                 }));
                 chatInput.value = '';
+                adjustInputHeight();
             }
         }
 
+        chatInput.addEventListener('input', adjustInputHeight);
+        window.addEventListener('resize', adjustInputHeight);
+
         sendBtn.addEventListener('click', sendMessage);
         chatInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
                 sendMessage();
             }
         });
