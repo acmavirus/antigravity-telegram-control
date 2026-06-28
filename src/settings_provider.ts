@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getSettingsHtml } from './settings_view';
-
 import * as os from 'os';
+import { isScriptInjected } from './workbench_injector';
 
 export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'telegram-control-welcome';
@@ -11,7 +11,7 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
 
     constructor(
-        private readonly _extensionUri: vscode.Uri,
+        private readonly context: vscode.ExtensionContext,
     ) { }
 
     public resolveWebviewView(
@@ -24,7 +24,7 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [
-                this._extensionUri
+                this.context.extensionUri
             ]
         };
 
@@ -68,6 +68,7 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                         await config.update('autoRetry', data.autoRetry, vscode.ConfigurationTarget.Global);
                         await config.update('autoAccept', data.autoAccept, vscode.ConfigurationTarget.Global);
                         await config.update('autoAcceptInterval', data.autoAcceptInterval ?? 800, vscode.ConfigurationTarget.Global);
+                        await config.update('clickPatterns', data.clickPatterns ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"], vscode.ConfigurationTarget.Global);
                         vscode.window.showInformationMessage('Automation settings updated!');
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save automation settings: ${e.message}`);
@@ -86,6 +87,30 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save Web Mirror settings: ${e.message}`);
                     }
+                    break;
+
+                case 'resetStats':
+                    await this.context.globalState.update('totalClicks', 0);
+                    await this.context.globalState.update('clickStats', {});
+                    await this.context.globalState.update('clickLog', []);
+                    webviewView.webview.postMessage({ command: 'statsUpdated', clickStats: {}, totalClicks: 0 });
+                    webviewView.webview.postMessage({ command: 'clickLogUpdate', log: [] });
+                    break;
+
+                case 'clearClickLog':
+                    await this.context.globalState.update('clickLog', []);
+                    webviewView.webview.postMessage({ command: 'clickLogUpdate', log: [] });
+                    break;
+
+                case 'getStats':
+                    const totalClicks = this.context.globalState.get<number>('totalClicks') ?? 0;
+                    const clickStats = this.context.globalState.get<Record<string, number>>('clickStats') ?? {};
+                    webviewView.webview.postMessage({ command: 'statsUpdated', clickStats, totalClicks });
+                    break;
+
+                case 'getClickLog':
+                    const log = this.context.globalState.get<Array<any>>('clickLog') ?? [];
+                    webviewView.webview.postMessage({ command: 'clickLogUpdate', log });
                     break;
 
                 case 'autofind':
@@ -128,6 +153,14 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                 case 'deleteCommands':
                     vscode.commands.executeCommand('antigravity-telegram-control.deleteCommands', data.token, data.chatId);
                     break;
+
+                case 'injectScript':
+                    vscode.commands.executeCommand('antigravity-telegram-control.injectScript');
+                    break;
+
+                case 'uninstallScript':
+                    vscode.commands.executeCommand('antigravity-telegram-control.uninstallScript');
+                    break;
             }
         });
     }
@@ -150,6 +183,12 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
             const enableTunnel = config.get<boolean>('enableTunnel') ?? false;
             const tunnelType = config.get<string>('tunnelType') || 'localhost.run';
             const ngrokAuthToken = config.get<string>('ngrokAuthToken') || '';
+
+            const clickPatterns = config.get<string[]>('clickPatterns') ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"];
+            
+            const totalClicks = this.context.globalState.get<number>('totalClicks') ?? 0;
+            const clickStats = this.context.globalState.get<Record<string, number>>('clickStats') ?? {};
+            const clickLog = this.context.globalState.get<Array<any>>('clickLog') ?? [];
 
             let agentsMs = '';
             let geminiMd = '';
@@ -182,10 +221,13 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                 mirrorToken,
                 enableTunnel,
                 tunnelType,
-                ngrokAuthToken
+                ngrokAuthToken,
+                clickPatterns,
+                totalClicks,
+                clickStats,
+                clickLog,
+                isScriptInjected()
             );
         }
     }
 }
-
-

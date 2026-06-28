@@ -12,6 +12,7 @@ import { fetchQuotaInfo } from './quota_checker';
 import { StatusBarManager } from './status_bar';
 import { AutoAcceptManager } from './auto_accept';
 import { MirrorServerManager } from './mirror_server';
+import { installScript, uninstallScript, clearV8CodeCache, updateProductChecksums } from './workbench_injector';
 
 let bot: Telegraf | undefined;
 let lockManager: BotLockManager | undefined;
@@ -524,11 +525,11 @@ function stopBot(): void {
 export function activate(context: vscode.ExtensionContext) {
     lockManager = new BotLockManager(context);
     statusBarManager = new StatusBarManager(context);
-    autoAcceptManager = new AutoAcceptManager();
+    autoAcceptManager = new AutoAcceptManager(context);
     mirrorServerManager = new MirrorServerManager();
 
     // Sidebar settings panel
-    const provider = new TelegramSettingsProvider(context.extensionUri);
+    const provider = new TelegramSettingsProvider(context);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(TelegramSettingsProvider.viewType, provider),
         autoAcceptManager,
@@ -545,6 +546,60 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('antigravity-telegram-control.startBot', () => startBot(context)),
         vscode.commands.registerCommand('antigravity-telegram-control.stopBot', stopBot),
+
+        vscode.commands.registerCommand('antigravity-telegram-control.injectScript', async () => {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Injecting script into workbench...",
+                cancellable: false
+            }, async () => {
+                try {
+                    const success = installScript(context);
+                    if (success) {
+                        clearV8CodeCache();
+                        updateProductChecksums();
+                        provider.updateHtml();
+                        const choice = await vscode.window.showInformationMessage(
+                            '[AG Auto] ✅ Đã inject script! Reload VS Code để kích hoạt.',
+                            'Reload Now'
+                        );
+                        if (choice === 'Reload Now') {
+                            vscode.commands.executeCommand('workbench.action.reloadWindow');
+                        }
+                    }
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(`Inject failed: ${e.message}`);
+                }
+            });
+        }),
+
+        vscode.commands.registerCommand('antigravity-telegram-control.uninstallScript', async () => {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Removing script from workbench...",
+                cancellable: false
+            }, async () => {
+                try {
+                    const success = uninstallScript();
+                    if (success) {
+                        clearV8CodeCache();
+                        updateProductChecksums();
+                        provider.updateHtml();
+                        const choice = await vscode.window.showInformationMessage(
+                            '[AG Auto] 🗑️ Đã gỡ script! Reload VS Code để hoàn tất.',
+                            'Reload Now'
+                        );
+                        if (choice === 'Reload Now') {
+                            vscode.commands.executeCommand('workbench.action.reloadWindow');
+                        }
+                    } else {
+                        vscode.window.showErrorMessage('[AG Auto] Không tìm thấy workbench.html!');
+                    }
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(`Removal failed: ${e.message}`);
+                }
+            });
+        }),
 
         vscode.commands.registerCommand('antigravity-telegram-control.refreshQuota', async () => {
             if (statusBarManager) {
@@ -618,6 +673,12 @@ export function activate(context: vscode.ExtensionContext) {
             const tunnelType = cfg.get<string>('tunnelType') ?? 'localhost.run';
             const ngrokAuthToken = cfg.get<string>('ngrokAuthToken') ?? '';
 
+            const clickPatterns = cfg.get<string[]>('clickPatterns') ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"];
+            
+            const totalClicks = context.globalState.get<number>('totalClicks') ?? 0;
+            const clickStats = context.globalState.get<Record<string, number>>('clickStats') ?? {};
+            const clickLog = context.globalState.get<Array<any>>('clickLog') ?? [];
+
             panel.webview.html = getSettingsHtml(
                 cfg.get('botToken') ?? '',
                 cfg.get('allowedChatId') ?? '',
@@ -635,7 +696,11 @@ export function activate(context: vscode.ExtensionContext) {
                 mirrorToken,
                 enableTunnel,
                 tunnelType,
-                ngrokAuthToken
+                ngrokAuthToken,
+                clickPatterns,
+                totalClicks,
+                clickStats,
+                clickLog
             );
 
             panel.webview.onDidReceiveMessage(async (msg) => {
@@ -673,6 +738,7 @@ export function activate(context: vscode.ExtensionContext) {
                         await cfg.update('autoRetry', msg.autoRetry, vscode.ConfigurationTarget.Global);
                         await cfg.update('autoAccept', msg.autoAccept, vscode.ConfigurationTarget.Global);
                         await cfg.update('autoAcceptInterval', msg.autoAcceptInterval ?? 800, vscode.ConfigurationTarget.Global);
+                        await cfg.update('clickPatterns', msg.clickPatterns ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"], vscode.ConfigurationTarget.Global);
                         vscode.window.showInformationMessage('Automation settings updated!');
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save automation settings: ${e.message}`);
@@ -690,6 +756,26 @@ export function activate(context: vscode.ExtensionContext) {
                     } catch (e: any) {
                         vscode.window.showErrorMessage(`Failed to save Web Mirror settings: ${e.message}`);
                     }
+                }
+                if (msg.command === 'resetStats') {
+                    await context.globalState.update('totalClicks', 0);
+                    await context.globalState.update('clickStats', {});
+                    await context.globalState.update('clickLog', []);
+                    panel.webview.postMessage({ command: 'statsUpdated', clickStats: {}, totalClicks: 0 });
+                    panel.webview.postMessage({ command: 'clickLogUpdate', log: [] });
+                }
+                if (msg.command === 'clearClickLog') {
+                    await context.globalState.update('clickLog', []);
+                    panel.webview.postMessage({ command: 'clickLogUpdate', log: [] });
+                }
+                if (msg.command === 'getStats') {
+                    const totalClicks = context.globalState.get<number>('totalClicks') ?? 0;
+                    const clickStats = context.globalState.get<Record<string, number>>('clickStats') ?? {};
+                    panel.webview.postMessage({ command: 'statsUpdated', clickStats, totalClicks });
+                }
+                if (msg.command === 'getClickLog') {
+                    const log = context.globalState.get<Array<any>>('clickLog') ?? [];
+                    panel.webview.postMessage({ command: 'clickLogUpdate', log });
                 }
                 if (msg.command === 'autofind') {
                     try {
@@ -732,6 +818,12 @@ export function activate(context: vscode.ExtensionContext) {
                     const tokenToUse = msg.token || cfg.get('botToken') || '';
                     const chatIdToUse = cfg.get('allowedChatId') || '';
                     vscode.commands.executeCommand('antigravity-telegram-control.deleteCommands', tokenToUse, chatIdToUse);
+                }
+                if (msg.command === 'injectScript') {
+                    vscode.commands.executeCommand('antigravity-telegram-control.injectScript');
+                }
+                if (msg.command === 'uninstallScript') {
+                    vscode.commands.executeCommand('antigravity-telegram-control.uninstallScript');
                 }
             }, undefined, context.subscriptions);
         }),

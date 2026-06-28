@@ -45,6 +45,14 @@
             {
                 "command": "antigravity-telegram-control.refreshQuota",
                 "title": "Telegram: Refresh Quota Status"
+            },
+            {
+                "command": "antigravity-telegram-control.injectScript",
+                "title": "Telegram: Inject Automation Script"
+            },
+            {
+                "command": "antigravity-telegram-control.uninstallScript",
+                "title": "Telegram: Remove Automation Script"
             }
         ],
         "viewsContainers": {
@@ -158,6 +166,22 @@
                     "type": "string",
                     "default": "",
                     "description": "Ngrok Authtoken (required if using ngrok and not configured globally)"
+                },
+
+                "antigravityTelegramControl.clickPatterns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "Allow",
+                        "Always Allow",
+                        "Run",
+                        "Keep Waiting",
+                        "Accept all",
+                        "Accept"
+                    ],
+                    "description": "List of button texts to auto-click"
                 }
             }
         }

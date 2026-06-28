@@ -70,6 +70,9 @@ export interface Translation {
     autoRetryLabel?: string;
     autoAcceptLabel?: string;
     autoAcceptIntervalLabel?: string;
+    autoScrollLabel?: string;
+    scrollPauseMsLabel?: string;
+    clickPatternsLabel?: string;
     enableMirrorLabel?: string;
     mirrorPortLabel?: string;
     securityTokenLabel?: string;
@@ -152,6 +155,9 @@ export const translations: Record<string, Translation> = {
         autoRetryLabel: "Auto Retry (Automatically retry on Telegram errors/timeouts)",
         autoAcceptLabel: "Auto Accept (Automatically accept Agent steps/commands locally)",
         autoAcceptIntervalLabel: "Auto Accept Interval (Check interval in ms)",
+        autoScrollLabel: "Auto Scroll (Automatically scroll chat panel to bottom)",
+        scrollPauseMsLabel: "Scroll Pause (Pause scrolling for X ms when manual scroll is detected)",
+        clickPatternsLabel: "Click Patterns (List of button labels to click, comma separated)",
         enableMirrorLabel: "Enable Web Mirror (Start streaming server for web interface)",
         mirrorPortLabel: "Mirror Port",
         securityTokenLabel: "Security Token (Leave blank if not used)",
@@ -232,6 +238,9 @@ export const translations: Record<string, Translation> = {
         autoRetryLabel: "Tự động thử lại (Tự động thử lại khi lỗi/timeout từ Telegram)",
         autoAcceptLabel: "Tự động chấp nhận (Tự động chấp nhận bước/lệnh của Agent cục bộ)",
         autoAcceptIntervalLabel: "Khoảng thời gian Auto Accept (Mili-giây)",
+        autoScrollLabel: "Tự động cuộn (Tự động cuộn khung chat xuống dưới cùng khi agent tạo nội dung)",
+        scrollPauseMsLabel: "Thời gian dừng cuộn (Dừng tự cuộn trong X mili-giây khi phát hiện người dùng cuộn tay)",
+        clickPatternsLabel: "Mẫu click (Danh sách nhãn nút cần click, phân tách bằng dấu phẩy)",
         enableMirrorLabel: "Bật Web Mirror (Bật máy chủ truyền phát lên giao diện web)",
         mirrorPortLabel: "Cổng Mirror",
         securityTokenLabel: "Mã bảo mật Token (Để trống nếu không dùng)",

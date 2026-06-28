@@ -18,7 +18,12 @@ export function getSettingsHtml(
     mirrorToken: string = "",
     enableTunnel: boolean = false,
     tunnelType: string = 'localhost.run',
-    ngrokAuthToken: string = ''
+    ngrokAuthToken: string = '',
+    clickPatterns: string[] = ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"],
+    totalClicks: number = 0,
+    clickStats: Record<string, number> = {},
+    clickLog: Array<{ time: string, button: string, pattern: string }> = [],
+    isInjected: boolean = false
 ): string {
     const t = translations[language] || translations['en'];
     const languages = [
@@ -235,6 +240,163 @@ export function getSettingsHtml(
             font-weight: 600;
             color: var(--vscode-foreground);
         }
+
+        /* Active Patterns Tag Design */
+        .patterns-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 8px 0;
+            padding: 6px;
+            background: var(--vscode-sideBar-background);
+            border: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,0.2));
+            border-radius: 3px;
+            min-height: 38px;
+        }
+
+        .pattern-tag {
+            display: inline-flex;
+            align-items: center;
+            background: var(--vscode-button-secondaryBackground, rgba(128,128,128,0.15));
+            color: var(--vscode-foreground);
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 11px;
+            gap: 4px;
+            border: 1px solid var(--vscode-sideBarSectionHeader-border, transparent);
+        }
+
+        .pattern-tag .remove-btn {
+            cursor: pointer;
+            color: var(--vscode-errorForeground, #ff5555);
+            font-weight: bold;
+            font-size: 12px;
+            padding: 0 2px;
+        }
+
+        .pattern-tag .remove-btn:hover {
+            color: var(--vscode-testing-iconFailedColor, #ff3333);
+        }
+
+        .pattern-add-row {
+            display: flex;
+            gap: 6px;
+        }
+
+        /* Statistics Styling */
+        .stats-summary-card {
+            background: var(--vscode-welcomePage-tileBackground, rgba(128,128,128,0.08));
+            border: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,0.2));
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .stats-summary-val {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--vscode-textLink-activeForeground, #3794ff);
+            margin-top: 4px;
+        }
+
+        .stats-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .stats-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stats-label {
+            width: 90px;
+            font-size: 11px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--vscode-foreground);
+        }
+
+        .stats-bar-container {
+            flex: 1;
+            height: 12px;
+            background: var(--vscode-sideBar-background);
+            border: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,0.2));
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .stats-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--vscode-button-background, #007acc), var(--vscode-textLink-activeForeground, #3794ff));
+            border-radius: 6px;
+            width: 0%;
+            transition: width 0.5s ease-out;
+        }
+
+        .stats-count {
+            width: 30px;
+            font-size: 11px;
+            font-weight: bold;
+            text-align: right;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        /* Log card */
+        .log-card {
+            border: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,0.2));
+            border-radius: 4px;
+            padding: 8px;
+            background: var(--vscode-sideBar-background);
+        }
+
+        .log-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .log-container {
+            max-height: 150px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding-right: 4px;
+        }
+
+        .log-entry {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            padding: 3px 6px;
+            background: var(--vscode-welcomePage-tileBackground, rgba(128,128,128,0.04));
+            border-radius: 2px;
+            border-left: 2px solid var(--vscode-textLink-activeForeground, #3794ff);
+        }
+
+        .log-time {
+            color: var(--vscode-descriptionForeground);
+            margin-right: 4px;
+        }
+
+        .log-text {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .log-pattern {
+            color: var(--vscode-textLink-activeForeground, #3794ff);
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -243,6 +405,7 @@ export function getSettingsHtml(
         <div class="tab" data-target="agents-tab">Agents</div>
         <div class="tab" data-target="auto-tab">Auto</div>
         <div class="tab" data-target="mirror-tab">Mirror</div>
+        <div class="tab" data-target="stats-tab">Stats</div>
     </div>
 
     <div class="content-container">
@@ -351,7 +514,35 @@ export function getSettingsHtml(
                 <input type="number" id="auto-accept-interval" value="${autoAcceptInterval}" placeholder="800" min="200">
             </div>
 
-            <button id="save-auto">${t.saveAutoBtn || 'Save Automation Settings'}</button>
+
+
+            <div class="field" style="margin-top: 12px;">
+                <label>${t.clickPatternsLabel || 'Click Button Patterns'}</label>
+                <div id="patterns-list" class="patterns-list"></div>
+                <div class="pattern-add-row">
+                    <input type="text" id="new-pattern" placeholder="Type pattern name...">
+                    <button id="add-pattern" style="width: auto; margin: 0; padding: 4px 12px;">Add</button>
+                </div>
+            </div>
+
+            <div class="field" style="margin-top: 16px;">
+                <label style="font-weight: 600;">Workbench Injection Status (No remote port required)</label>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; padding: 8px; background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,0.15)); border-radius: 4px;">
+                    <div>
+                        <span id="injection-status-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${isInjected ? '#4EC9B0' : '#858585'}; margin-right: 6px;"></span>
+                        <span id="injection-status-text" style="font-size: 11px; color: ${isInjected ? 'var(--vscode-testing-iconPassedColor, #4EC9B0)' : 'var(--vscode-descriptionForeground)'}">${isInjected ? 'Injected (Active)' : 'Not Injected'}</span>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="btn-inject" class="secondary" style="width: auto; margin: 0; padding: 4px 8px; font-size: 11px;">Inject</button>
+                        <button id="btn-uninstall" class="secondary" style="width: auto; margin: 0; padding: 4px 8px; font-size: 11px;">Remove</button>
+                    </div>
+                </div>
+                <div style="margin-top: 6px; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.4;">
+                    Tiện ích bổ sung giúp tự động click/scroll trong IDE mà không cần bật cổng debug 9222. Sẽ yêu cầu tải lại cửa sổ (reload window) khi cài đặt hoặc gỡ bỏ.
+                </div>
+            </div>
+
+            <button id="save-auto" style="margin-top: 16px;">${t.saveAutoBtn || 'Save Automation Settings'}</button>
             <div id="auto-msg" class="msg">✓ Automation settings saved.</div>
         </div>
 
@@ -402,10 +593,136 @@ export function getSettingsHtml(
                 ${(t.mirrorDescription || 'When enabled, you can access the web interface at: http://localhost:{port}{tokenUrl}').replace('{port}', mirrorPort.toString()).replace('{tokenUrl}', mirrorToken ? '/?token=' + mirrorToken : '')}
             </div>
         </div>
+
+        <!-- Stats Tab -->
+        <div id="stats-tab" class="tab-content">
+            <h2>Click Statistics</h2>
+            
+            <div class="stats-summary-card">
+                <div>Total Auto Accepted Clicks</div>
+                <div id="total-clicks-display" class="stats-summary-val">${totalClicks}</div>
+            </div>
+
+            <div id="stats-chart-container" class="stats-chart">
+                <!-- Chart rows injected by script -->
+            </div>
+
+            <button id="reset-stats" style="color: var(--vscode-errorForeground, #ff5555); margin-bottom: 16px;">
+                Reset Statistics
+            </button>
+
+            <div class="log-card">
+                <div class="log-title-row">
+                    <span class="editor-title">Recent Clicks Log</span>
+                    <button id="clear-click-log" class="secondary" style="width: auto; margin: 0; padding: 2px 8px; font-size: 10px;">Clear</button>
+                </div>
+                <div id="log-list" class="log-container">
+                    <!-- Log entries injected by script -->
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         const vscode = acquireVsCodeApi();
+
+        let clickPatterns = ${JSON.stringify(clickPatterns)};
+
+        // Render Patterns Badges
+        function renderPatterns() {
+            const list = document.getElementById('patterns-list');
+            list.innerHTML = '';
+            clickPatterns.forEach((pat, idx) => {
+                const tag = document.createElement('span');
+                tag.className = 'pattern-tag';
+                tag.innerHTML = \`\${escapeHtml(pat)} <span class="remove-btn" onclick="removePattern(\${idx})">&times;</span>\`;
+                list.appendChild(tag);
+            });
+        }
+
+        function removePattern(idx) {
+            clickPatterns.splice(idx, 1);
+            renderPatterns();
+        }
+
+        window.removePattern = removePattern;
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        document.getElementById('add-pattern').addEventListener('click', () => {
+            const input = document.getElementById('new-pattern');
+            const val = input.value.trim();
+            if (val && !clickPatterns.includes(val)) {
+                clickPatterns.push(val);
+                renderPatterns();
+                input.value = '';
+            }
+        });
+
+        document.getElementById('new-pattern').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('add-pattern').click();
+            }
+        });
+
+        // Initialize patterns view
+        renderPatterns();
+
+        // Stats Visual Charts
+        function updateStatsUI(stats, total) {
+            document.getElementById('total-clicks-display').textContent = total;
+            const container = document.getElementById('stats-chart-container');
+            container.innerHTML = '';
+
+            const keys = Object.keys(stats);
+            if (keys.length === 0) {
+                container.innerHTML = '<div style="font-size:11px;color:var(--vscode-descriptionForeground);text-align:center;padding:12px;">No click stats recorded yet.</div>';
+                return;
+            }
+
+            keys.sort((a,b) => stats[b] - stats[a]);
+
+            const maxVal = Math.max(...Object.values(stats), 1);
+
+            keys.forEach(key => {
+                const count = stats[key];
+                const pct = Math.round((count / maxVal) * 100);
+
+                const row = document.createElement('div');
+                row.className = 'stats-row';
+                row.innerHTML = \`
+                    <div class="stats-label" title="\${escapeHtml(key)}">\${escapeHtml(key)}</div>
+                    <div class="stats-bar-container">
+                        <div class="stats-bar" style="width: \${pct}%"></div>
+                    </div>
+                    <div class="stats-count">\${count}</div>
+                \`;
+                container.appendChild(row);
+            });
+        }
+
+        function updateClickLogUI(log) {
+            const container = document.getElementById('log-list');
+            container.innerHTML = '';
+            if (log.length === 0) {
+                container.innerHTML = '<div style="font-size:10px;color:var(--vscode-descriptionForeground);text-align:center;padding:8px;">No click logs yet.</div>';
+                return;
+            }
+
+            log.forEach(entry => {
+                const row = document.createElement('div');
+                row.className = 'log-entry';
+                row.innerHTML = \`
+                    <span class="log-time">[\${escapeHtml(entry.time)}]</span>
+                    <span class="log-text" title="\&quot;\${escapeHtml(entry.button)}\&quot;">Clicked: "\${escapeHtml(entry.button)}"</span>
+                    <span class="log-pattern">\${escapeHtml(entry.pattern)}</span>
+                \`;
+                container.appendChild(row);
+            });
+        }
 
         // Listen for extension messages
         window.addEventListener('message', event => {
@@ -415,6 +732,12 @@ export function getSettingsHtml(
                 if (msg.geminiMdPath) document.getElementById('gemini-md-path').value = msg.geminiMdPath;
                 if (msg.agentsMs) document.getElementById('agents-ms').value = msg.agentsMs;
                 if (msg.geminiMd) document.getElementById('gemini-md').value = msg.geminiMd;
+            }
+            if (msg.command === 'statsUpdated') {
+                updateStatsUI(msg.clickStats, msg.totalClicks);
+            }
+            if (msg.command === 'clickLogUpdate') {
+                updateClickLogUI(msg.log);
             }
         });
 
@@ -430,6 +753,12 @@ export function getSettingsHtml(
                 // Update content
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                 document.getElementById(target).classList.add('active');
+
+                // Trigger direct fetch of stats/logs if switching to stats tab
+                if (target === 'stats-tab') {
+                    vscode.postMessage({ command: 'getStats' });
+                    vscode.postMessage({ command: 'getClickLog' });
+                }
             });
         });
 
@@ -467,7 +796,8 @@ export function getSettingsHtml(
                 command: 'saveAuto',
                 autoRetry: document.getElementById('auto-retry').checked,
                 autoAccept: document.getElementById('auto-accept').checked,
-                autoAcceptInterval: parseInt(document.getElementById('auto-accept-interval').value) || 800
+                autoAcceptInterval: parseInt(document.getElementById('auto-accept-interval').value) || 800,
+                clickPatterns: clickPatterns
             });
             const msg = document.getElementById('auto-msg');
             msg.classList.add('show');
@@ -495,6 +825,24 @@ export function getSettingsHtml(
             if (portDisplay) portDisplay.textContent = port;
         });
 
+        // Stats Interactions
+        document.getElementById('reset-stats').addEventListener('click', () => {
+            vscode.postMessage({ command: 'resetStats' });
+        });
+
+        document.getElementById('clear-click-log').addEventListener('click', () => {
+            vscode.postMessage({ command: 'clearClickLog' });
+        });
+
+        // Periodic update of stats
+        setInterval(() => {
+            const statsTabActive = document.querySelector('.tab[data-target="stats-tab"]').classList.contains('active');
+            if (statsTabActive) {
+                vscode.postMessage({ command: 'getStats' });
+                vscode.postMessage({ command: 'getClickLog' });
+            }
+        }, 2000);
+
         // Tunnel fields UI visibility toggle
         const enableTunnelCheck = document.getElementById('enable-tunnel');
         const tunnelTypeSelect = document.getElementById('tunnel-type');
@@ -508,6 +856,14 @@ export function getSettingsHtml(
 
         tunnelTypeSelect.addEventListener('change', () => {
             ngrokTokenField.style.display = (enableTunnelCheck.checked && tunnelTypeSelect.value === 'ngrok') ? 'block' : 'none';
+        });
+
+        document.getElementById('btn-inject').addEventListener('click', () => {
+            vscode.postMessage({ command: 'injectScript' });
+        });
+
+        document.getElementById('btn-uninstall').addEventListener('click', () => {
+            vscode.postMessage({ command: 'uninstallScript' });
         });
 
         document.getElementById('autofind').addEventListener('click', () => {
@@ -529,9 +885,16 @@ export function getSettingsHtml(
                 chatId: document.getElementById('chatId').value
             });
         });
+
+        // Initial trigger to load stats
+        vscode.postMessage({ command: 'getStats' });
+        vscode.postMessage({ command: 'getClickLog' });
+        
+        // Render initial chart stats
+        updateStatsUI(${JSON.stringify(clickStats)}, ${totalClicks});
+        updateClickLogUI(${JSON.stringify(clickLog)});
     </script>
 </body>
 </html>
 `;
 }
-
