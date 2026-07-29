@@ -695,55 +695,89 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
     ): ModelQuotaGroup | null => {
         if (groupModels.length === 0) return null;
 
-        let minPct = 100;
-        let minDiff = Number.MAX_SAFE_INTEGER;
-        let repResetTime: Date | undefined;
-        let repResetFormatted = '';
+        let weeklyPct = 100;
+        let weeklyResetTime: Date | undefined;
+        let weeklyDiff = Number.MAX_SAFE_INTEGER;
+        let weeklyFormatted = '';
+
+        let fiveHourPct = 100;
+        let fiveHourResetTime: Date | undefined;
+        let fiveHourDiff = Number.MAX_SAFE_INTEGER;
+        let fiveHourFormatted = '';
+
+        const FIVE_HOURS_MS = 5 * 3600 * 1000;
 
         for (const m of groupModels) {
             const pct = m.remaining_percentage !== undefined ? m.remaining_percentage : 100;
-            if (pct < minPct) {
-                minPct = pct;
-            }
-            if (m.time_until_reset > 0 && m.time_until_reset < minDiff) {
-                minDiff = m.time_until_reset;
-                repResetTime = m.reset_time;
-                repResetFormatted = m.time_until_reset_formatted;
+            const diff = m.time_until_reset;
+
+            if (diff > FIVE_HOURS_MS) {
+                if (pct < weeklyPct) {
+                    weeklyPct = pct;
+                }
+                if (diff > 0 && diff < weeklyDiff) {
+                    weeklyDiff = diff;
+                    weeklyResetTime = m.reset_time;
+                    weeklyFormatted = m.time_until_reset_formatted;
+                }
+            } else if (diff > 0 && diff <= FIVE_HOURS_MS) {
+                if (pct < fiveHourPct) {
+                    fiveHourPct = pct;
+                }
+                if (diff < fiveHourDiff) {
+                    fiveHourDiff = diff;
+                    fiveHourResetTime = m.reset_time;
+                    fiveHourFormatted = m.time_until_reset_formatted;
+                }
             }
         }
 
-        if (minDiff === Number.MAX_SAFE_INTEGER) {
-            minDiff = 0;
-            repResetFormatted = lang === 'vi' ? 'Sẵn sàng' : 'Ready';
+        if (weeklyDiff === Number.MAX_SAFE_INTEGER) {
+            weeklyDiff = 0;
+            weeklyFormatted = lang === 'vi' ? 'Sẵn sàng' : 'Ready';
+        }
+        if (fiveHourDiff === Number.MAX_SAFE_INTEGER) {
+            fiveHourDiff = 0;
+            fiveHourFormatted = lang === 'vi' ? 'Sẵn sàng' : 'Ready';
         }
 
         const limits: QuotaLimitItem[] = [];
 
         // 1. Weekly Limit
+        const weeklySub = (weeklyPct < 100 && weeklyDiff > 0)
+            ? (lang === 'vi'
+                ? `Bạn đã sử dụng một phần hạn mức tuần, sẽ làm mới hoàn toàn sau ${weeklyFormatted}.`
+                : `You have used some of your weekly limit, it will fully refresh in ${weeklyFormatted}.`)
+            : undefined;
+
         limits.push({
             name: lang === 'vi' ? 'Hạn mức tuần' : 'Weekly Limit',
             name_key: 'weeklyLimit',
-            remaining_percentage: 100,
-            time_until_reset_formatted: lang === 'vi' ? 'Sẵn sàng' : 'Ready',
+            remaining_percentage: weeklyPct,
+            reset_time: weeklyResetTime,
+            time_until_reset: weeklyDiff,
+            time_until_reset_formatted: weeklyFormatted,
+            subtitle: weeklySub,
         });
 
         // 2. Five Hour Limit
-        const fiveHourPct = Math.round(minPct);
-        const sub = (fiveHourPct < 100 && minDiff > 0)
+        const fiveHourSub = (fiveHourPct < 100 && fiveHourDiff > 0)
             ? (lang === 'vi'
-                ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${repResetFormatted}.`
-                : `You have used some of your 5-hour limit, it will fully refresh in ${repResetFormatted}.`)
+                ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${fiveHourFormatted}.`
+                : `You have used some of your 5-hour limit, it will fully refresh in ${fiveHourFormatted}.`)
             : undefined;
 
         limits.push({
             name: lang === 'vi' ? 'Hạn mức 5 giờ' : 'Five Hour Limit',
             name_key: 'fiveHourLimit',
             remaining_percentage: fiveHourPct,
-            reset_time: repResetTime,
-            time_until_reset: minDiff,
-            time_until_reset_formatted: repResetFormatted,
-            subtitle: sub
+            reset_time: fiveHourResetTime,
+            time_until_reset: fiveHourDiff,
+            time_until_reset_formatted: fiveHourFormatted,
+            subtitle: fiveHourSub,
         });
+
+        const minPct = Math.min(weeklyPct, fiveHourPct);
 
         return {
             title,
