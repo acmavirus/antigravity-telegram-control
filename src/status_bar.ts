@@ -95,25 +95,33 @@ export class StatusBarManager implements vscode.Disposable {
             tooltipRows.push(`| <br>&nbsp;&nbsp; 💳 ${label} &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; **${pc.available.toLocaleString()}** / ${pc.monthly.toLocaleString()} (${pct}%) &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; -- &nbsp;&nbsp;<br>&nbsp; |`);
         }
 
-        // 4. Models Quota
-        if (snapshot.models && snapshot.models.length > 0) {
-            // Find lowest model quota percentage to display if Flow Credits is not present
-            if (!snapshot.flow_credits) {
-                const activeModel = snapshot.models.reduce((min, m) => {
-                    const minPct = min.remaining_percentage ?? 100;
-                    const mPct = m.remaining_percentage ?? 100;
-                    return mPct < minPct ? m : min;
-                });
-                const pct = activeModel.remaining_percentage !== undefined ? Math.round(activeModel.remaining_percentage) : 100;
-                const statusEmoji = this.getStatusEmoji(pct);
-                parts.unshift(`${statusEmoji} ${activeModel.label} ${pct}%`);
-            }
+        // 4. Models Quota Groups
+        if (snapshot.model_groups && snapshot.model_groups.length > 0) {
+            snapshot.model_groups.forEach(group => {
+                const fiveHourItem = group.limits.find(l => l.name_key === 'fiveHourLimit');
+                const weeklyItem = group.limits.find(l => l.name_key === 'weeklyLimit');
+                const fiveHourPct = fiveHourItem ? Math.round(fiveHourItem.remaining_percentage) : Math.round(group.min_remaining_percentage);
+                const weeklyPct = weeklyItem ? Math.round(weeklyItem.remaining_percentage) : 100;
 
-            // Add all models to tooltip
+                const minPct = Math.min(fiveHourPct, weeklyPct);
+                const statusEmoji = this.getStatusEmoji(minPct);
+                const shortTitle = group.title.includes('Gemini') ? 'Gemini' : 'Claude/GPT';
+                parts.push(`${statusEmoji} ${shortTitle} ${fiveHourPct}%/${weeklyPct}%`);
+
+                tooltipRows.push(`| **${group.title}** | -- | -- |`);
+                group.limits.forEach(limit => {
+                    const lPct = Math.round(limit.remaining_percentage);
+                    const lEmoji = this.getStatusEmoji(lPct);
+                    const resetStr = limit.time_until_reset_formatted || '--';
+                    tooltipRows.push(`| &nbsp;&nbsp; ${lEmoji} ${limit.name} | **${lPct}%** | ⏱ ${resetStr} |`);
+                });
+            });
+        } else if (snapshot.models && snapshot.models.length > 0) {
             snapshot.models.forEach(model => {
                 const pct = model.remaining_percentage !== undefined ? Math.round(model.remaining_percentage) : 100;
                 const statusEmoji = this.getStatusEmoji(pct);
-                tooltipRows.push(`| <br>&nbsp;&nbsp; ${statusEmoji} ${model.label} &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; **${pct}%** &nbsp;&nbsp;<br>&nbsp; | <br>&nbsp;&nbsp; ⏱ ${model.time_until_reset_formatted} &nbsp;&nbsp;<br>&nbsp; |`);
+                parts.push(`${statusEmoji} ${model.label} ${pct}%`);
+                tooltipRows.push(`| ${statusEmoji} ${model.label} | **${pct}%** | ⏱ ${model.time_until_reset_formatted} |`);
             });
         }
 

@@ -21,8 +21,12 @@
 *   **📊 Quota & Credits HUD (`/quota` & Status Bar)**:
     *   **Interactive Status Bar**: Real-time display of your prompt credits and remaining quota directly in the VS Code status bar.
     *   **On-Demand Query**: Query account tier, prompt credits, flow credits, and remaining model tokens at any time using `/quota`.
-*   **⚡ Local Auto-Accept**: Automatically accept agent steps, file changes, and terminal executions locally without needing to manually click them in the IDE.
-*   **🌐 Web Mirror Server & Tunneling**: Run a local HTTP & WebSocket server to stream and interact with the Antigravity Agent chat panel from any device (phone, tablet, browser) in real-time. Includes automatic public tunneling (**localhost.run** or **ngrok**) to securely access the mirror from external networks, sending the live link directly to your Telegram bot.
+*   **⚡ Local Auto-Accept & Smart Auto Scroll**: 
+    *   **Smart Auto Scroll**: Automatically scrolls the Antigravity chat panel down while the agent is generating output; pauses when you manually scroll up to read, and resumes when content updates.
+    *   **Chat-Only Protection**: Phased DOM matching auto-approves `Allow`, `Run`, `Always Allow`, and chat `Accept` while protecting Monaco diff editors, merge regions, and code viewports.
+    *   **Multi-Instance Support**: Dynamic IPC port binding (`48787-48850`) enables running multiple Antigravity IDE instances simultaneously with zero port conflict.
+    *   **Checksum Self-Healing**: Recalculates SHA-256 hashes in `product.json` (`updateProductChecksums()`) and clears V8 bytecode cache to suppress VS Code "Corrupt Installation" warnings.
+*   **🌐 Web Mirror Server & Tunneling**: Run a local HTTP & WebSocket server to stream and interact with the Antigravity Agent chat panel from any device (phone, tablet, browser) in real-time. Includes automatic public tunneling (**localhost.run**, **Cloudflare Tunnel**, or **ngrok**) to securely access the mirror from external networks, sending the live link directly to your Telegram bot.
 *   **🌍 Multi-language Support**: Fully localized in 15+ languages including English, Vietnamese, Chinese, Japanese, French, German, Italian, Spanish, Arabic, Hindi, Turkish, and Indonesian.
 *   **🔒 Secure Sandbox**: Access is restricted to your specific authorized Telegram Chat ID. Slash command suggestions are scope-limited so they only appear for your chat.
 

@@ -12,7 +12,7 @@ import { fetchQuotaInfo } from './quota_checker';
 import { StatusBarManager } from './status_bar';
 import { AutoAcceptManager } from './auto_accept';
 import { MirrorServerManager } from './mirror_server';
-import { installScript, uninstallScript, clearV8CodeCache, updateProductChecksums } from './workbench_injector';
+import { installScript, uninstallScript, clearV8CodeCache, updateProductChecksums, writeConfigJson } from './workbench_injector';
 
 let bot: Telegraf | undefined;
 let lockManager: BotLockManager | undefined;
@@ -393,23 +393,55 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
 
                 let replyText = `${t('quotaTitle') || '📊 *Antigravity Quota Info*'}\n\n`;
 
+                if (snapshot.user_info) {
+                    const u = snapshot.user_info;
+                    const tierName = u.tier || u.planName || '';
+                    const userLabel = u.name ? (u.email ? `${u.name} (${u.email})` : u.name) : (u.email || '');
+                    if (userLabel || tierName) {
+                        replyText += `👤 *${t('accountTitle') || 'Account:'}* ${userLabel}${tierName ? ` [${tierName}]` : ''}\n`;
+                    }
+                }
+
                 if (snapshot.prompt_credits) {
                     const pc = snapshot.prompt_credits;
                     const pcStr = (t('promptCredits') || 'Prompt Credits: {available}/{monthly} ({remaining}%)')
-                        .replace('{available}', pc.available.toString())
-                        .replace('{monthly}', pc.monthly.toString())
+                        .replace('{available}', pc.available.toLocaleString())
+                        .replace('{monthly}', pc.monthly.toLocaleString())
                         .replace('{remaining}', pc.remaining_percentage.toFixed(1));
-                    replyText += `• ${pcStr}\n`;
+                    replyText += `💳 ${pcStr}\n`;
                 }
 
-                if (snapshot.models && snapshot.models.length > 0) {
-                    replyText += `\n*${t('modelsTitle') || 'AI Models:'}*\n`;
+                if (snapshot.flow_credits) {
+                    const fc = snapshot.flow_credits;
+                    const fcStr = (t('flowCredits') || 'Flow Credits: {available}/{monthly} ({remaining}%)')
+                        .replace('{available}', fc.available.toLocaleString())
+                        .replace('{monthly}', fc.monthly.toLocaleString())
+                        .replace('{remaining}', fc.remaining_percentage.toFixed(1));
+                    replyText += `⚡ ${fcStr}\n`;
+                }
+
+                replyText += `\n`;
+
+                if (snapshot.model_groups && snapshot.model_groups.length > 0) {
+                    for (const group of snapshot.model_groups) {
+                        replyText += `*${group.title}* ℹ️\n`;
+                        for (const limit of group.limits) {
+                            const pctStr = `${limit.remaining_percentage}%`;
+                            replyText += `  • *${limit.name}*: *${pctStr}*\n`;
+                            if (limit.subtitle) {
+                                replyText += `    _${limit.subtitle}_\n`;
+                            }
+                        }
+                        replyText += `\n`;
+                    }
+                } else if (snapshot.models && snapshot.models.length > 0) {
+                    replyText += `*${t('modelsTitle') || 'AI Models:'}*\n`;
                     for (const model of snapshot.models) {
                         const pct = model.remaining_percentage !== undefined ? `${model.remaining_percentage.toFixed(1)}%` : 'N/A';
-                        replyText += `• *${model.label}*: ${pct} (Reset: ${model.time_until_reset_formatted})\n`;
+                        replyText += `• *${model.label}*: ${pct} (⏱ ${model.time_until_reset_formatted})\n`;
                     }
                 } else {
-                    replyText += `\n_${t('noQuotaInfo') || 'No active model quota information found.'}_\n`;
+                    replyText += `_${t('noQuotaInfo') || 'No active model quota information found.'}_\n`;
                 }
 
                 await ctx.telegram.editMessageText(
@@ -624,10 +656,14 @@ export function activate(context: vscode.ExtensionContext) {
             }
             if (e.affectsConfiguration('antigravityTelegramControl.autoAccept') ||
                 e.affectsConfiguration('antigravityTelegramControl.autoAcceptInterval') ||
+                e.affectsConfiguration('antigravityTelegramControl.scrollEnabled') ||
+                e.affectsConfiguration('antigravityTelegramControl.scrollPauseMs') ||
+                e.affectsConfiguration('antigravityTelegramControl.scrollIntervalMs') ||
                 e.affectsConfiguration('antigravityTelegramControl.debuggingPort')) {
                 if (autoAcceptManager) {
                     autoAcceptManager.onConfigChanged();
                 }
+                writeConfigJson(context);
             }
             if (e.affectsConfiguration('antigravityTelegramControl.enableMirror') ||
                 e.affectsConfiguration('antigravityTelegramControl.mirrorPort') ||
@@ -738,6 +774,15 @@ export function activate(context: vscode.ExtensionContext) {
                         await cfg.update('autoRetry', msg.autoRetry, vscode.ConfigurationTarget.Global);
                         await cfg.update('autoAccept', msg.autoAccept, vscode.ConfigurationTarget.Global);
                         await cfg.update('autoAcceptInterval', msg.autoAcceptInterval ?? 800, vscode.ConfigurationTarget.Global);
+                        try {
+                            await cfg.update('scrollEnabled', msg.scrollEnabled ?? true, vscode.ConfigurationTarget.Global);
+                        } catch (_e) { }
+                        try {
+                            await cfg.update('scrollPauseMs', msg.scrollPauseMs ?? 7000, vscode.ConfigurationTarget.Global);
+                        } catch (_e) { }
+                        try {
+                            await cfg.update('scrollIntervalMs', msg.scrollIntervalMs ?? 500, vscode.ConfigurationTarget.Global);
+                        } catch (_e) { }
                         await cfg.update('clickPatterns', msg.clickPatterns ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"], vscode.ConfigurationTarget.Global);
                         vscode.window.showInformationMessage('Automation settings updated!');
                     } catch (e: any) {

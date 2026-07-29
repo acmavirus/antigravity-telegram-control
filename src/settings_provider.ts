@@ -68,6 +68,15 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                         await config.update('autoRetry', data.autoRetry, vscode.ConfigurationTarget.Global);
                         await config.update('autoAccept', data.autoAccept, vscode.ConfigurationTarget.Global);
                         await config.update('autoAcceptInterval', data.autoAcceptInterval ?? 800, vscode.ConfigurationTarget.Global);
+                        try {
+                            await config.update('scrollEnabled', data.scrollEnabled ?? true, vscode.ConfigurationTarget.Global);
+                        } catch (_e) { }
+                        try {
+                            await config.update('scrollPauseMs', data.scrollPauseMs ?? 7000, vscode.ConfigurationTarget.Global);
+                        } catch (_e) { }
+                        try {
+                            await config.update('scrollIntervalMs', data.scrollIntervalMs ?? 500, vscode.ConfigurationTarget.Global);
+                        } catch (_e) { }
                         await config.update('clickPatterns', data.clickPatterns ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"], vscode.ConfigurationTarget.Global);
                         vscode.window.showInformationMessage('Automation settings updated!');
                     } catch (e: any) {
@@ -184,6 +193,10 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
             const tunnelType = config.get<string>('tunnelType') || 'localhost.run';
             const ngrokAuthToken = config.get<string>('ngrokAuthToken') || '';
 
+            const scrollEnabled = config.get<boolean>('scrollEnabled') ?? true;
+            const scrollPauseMs = config.get<number>('scrollPauseMs') ?? 7000;
+            const scrollIntervalMs = config.get<number>('scrollIntervalMs') ?? 500;
+
             const clickPatterns = config.get<string[]>('clickPatterns') ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"];
             
             const totalClicks = this.context.globalState.get<number>('totalClicks') ?? 0;
@@ -226,7 +239,10 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                 totalClicks,
                 clickStats,
                 clickLog,
-                isScriptInjected()
+                isScriptInjected(),
+                scrollEnabled,
+                scrollPauseMs,
+                scrollIntervalMs
             );
         }
     }

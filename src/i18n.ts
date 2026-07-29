@@ -55,6 +55,12 @@ export interface Translation {
     quotaTypeLabel?: string;
     statusLabel?: string;
     resetTimeLabel?: string;
+    geminiModelsTitle?: string;
+    claudeGptModelsTitle?: string;
+    fiveHourLimitLabel?: string;
+    weeklyLimitLabel?: string;
+    refreshSubtitle?: string;
+    readySubtitle?: string;
     mirrorTitle?: string;
     mirrorConnecting?: string;
     mirrorConnected?: string;
@@ -140,6 +146,12 @@ export const translations: Record<string, Translation> = {
         quotaTypeLabel: "Quota Type",
         statusLabel: "Status",
         resetTimeLabel: "Reset Time",
+        geminiModelsTitle: "Gemini Models",
+        claudeGptModelsTitle: "Claude and GPT models",
+        fiveHourLimitLabel: "Five Hour Limit",
+        weeklyLimitLabel: "Weekly Limit",
+        refreshSubtitle: "You have used some of your {limit_name}, it will fully refresh in {time}.",
+        readySubtitle: "Fully refreshed.",
         mirrorTitle: "Antigravity Chat Mirror",
         mirrorConnecting: "Connecting",
         mirrorConnected: "Live Mirror Connected",
@@ -223,6 +235,12 @@ export const translations: Record<string, Translation> = {
         quotaTypeLabel: "Loại hạn mức",
         statusLabel: "Trạng thái",
         resetTimeLabel: "Thời gian thiết lập lại",
+        geminiModelsTitle: "Gemini Models",
+        claudeGptModelsTitle: "Claude and GPT models",
+        fiveHourLimitLabel: "Five Hour Limit",
+        weeklyLimitLabel: "Weekly Limit",
+        refreshSubtitle: "Đã sử dụng một phần hạn mức, tự động làm mới sau {time}.",
+        readySubtitle: "Đã làm mới hoàn toàn.",
         mirrorTitle: "Kính chiếu Chat Antigravity",
         mirrorConnecting: "Đang kết nối",
         mirrorConnected: "Đã kết nối Kính chiếu",

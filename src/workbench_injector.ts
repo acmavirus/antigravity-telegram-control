@@ -108,6 +108,9 @@ export function buildScriptContent(context: vscode.ExtensionContext): string {
     const intervalMs = config.get<number>('autoAcceptInterval') ?? 800;
     const allPatterns = config.get<string[]>('clickPatterns') ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"];
     const enabled = config.get<boolean>('autoAccept') ?? false;
+    const scrollEnabled = config.get<boolean>('scrollEnabled') ?? true;
+    const scrollPauseMs = config.get<number>('scrollPauseMs') ?? 7000;
+    const scrollIntervalMs = config.get<number>('scrollIntervalMs') ?? 500;
 
     // Filter out 'Accept' for standard click patterns (it is handled separately as chat-only)
     const patterns = allPatterns.filter(p => p !== 'Accept');
@@ -117,12 +120,15 @@ export function buildScriptContent(context: vscode.ExtensionContext): string {
     let script = fs.readFileSync(templatePath, 'utf8');
 
     // Replace placeholders
+    script = script.replace(/\/\*\{\{PAUSE_SCROLL_MS\}\}\*\/\d+/, scrollPauseMs.toString());
+    script = script.replace(/\/\*\{\{SCROLL_INTERVAL_MS\}\}\*\/\d+/, scrollIntervalMs.toString());
     script = script.replace(/\/\*\{\{CLICK_INTERVAL_MS\}\}\*\/\d+/, intervalMs.toString());
     script = script.replace(
         /\/\*\{\{CLICK_PATTERNS\}\}\*\/\[.*?\]/,
         JSON.stringify(patterns)
     );
     script = script.replace(/\/\*\{\{ENABLED\}\}\*\/\w+/, enabled.toString());
+    script = script.replace(/\/\*\{\{SCROLL_ENABLED\}\}\*\/\w+/, scrollEnabled.toString());
 
     return script;
 }
@@ -144,6 +150,9 @@ export function writeConfigJson(context: vscode.ExtensionContext): void {
 
         const configData = JSON.stringify({
             enabled: enabled,
+            scrollEnabled: config.get<boolean>('scrollEnabled') ?? true,
+            scrollPauseMs: config.get<number>('scrollPauseMs') ?? 7000,
+            scrollIntervalMs: config.get<number>('scrollIntervalMs') ?? 500,
             clickPatterns: activePatterns,
             acceptInChatOnly: acceptEnabled,
             clickIntervalMs: config.get<number>('autoAcceptInterval') ?? 800

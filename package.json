@@ -2,7 +2,7 @@
     "name": "antigravity-telegram-control",
     "displayName": "Antigravity Telegram Control",
     "description": "Control Antigravity Agent via Telegram and take screenshots.",
-    "version": "0.0.9",
+    "version": "1.0.0",
     "publisher": "acmatvjrus",
     "repository": {
         "type": "git",
@@ -131,6 +131,21 @@
                     "type": "number",
                     "default": 800,
                     "description": "Interval in milliseconds to check and auto-accept agent actions (minimum: 200ms)"
+                },
+                "antigravityTelegramControl.scrollEnabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically scroll the Antigravity chat panel while agent is generating output"
+                },
+                "antigravityTelegramControl.scrollPauseMs": {
+                    "type": "number",
+                    "default": 7000,
+                    "description": "Pause auto-scroll duration in milliseconds when user manually scrolls up in chat"
+                },
+                "antigravityTelegramControl.scrollIntervalMs": {
+                    "type": "number",
+                    "default": 500,
+                    "description": "Interval in milliseconds for chat panel auto-scroll checks"
                 },
                 "antigravityTelegramControl.enableMirror": {
                     "type": "boolean",

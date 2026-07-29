@@ -4,6 +4,14 @@ All notable changes to the **Antigravity Telegram Control** extension will be do
 
 ---
 
+## v1.0.0 — Major Official Release
+*   **📜 Smart Auto Scroll**: Automatically scrolls the Antigravity chat panel while the agent generates content, pauses when you manually scroll up to read, and resumes when new content is generated.
+*   **🔀 Dynamic Multi-Instance Support**: Micro HTTP IPC server dynamically binds within port range `48787-48850` with port auto-discovery, allowing multiple Antigravity IDE windows to run simultaneously without conflicts.
+*   **🛡️ Checksum & Cache Self-Healing**: Automatically recalculates SHA-256 checksums in `product.json` (`updateProductChecksums()`) and clears V8 bytecode cache (`clearV8CodeCache()`) to resolve VS Code "Corrupt Installation" alerts.
+*   **🎯 DOM Protection & Chat-Only Accept**: Intelligent DOM context filtering protects diff editors, merge views, inline hunk actions, and code viewports while safely auto-approving agent chat steps.
+*   **📊 Click Stats Dashboard**: Real-time click history, top button crown badge, progress bars, and stats reset controls in the Webview UI.
+*   **⚡ Native Win32 Keep Waiting Clicker**: Automatic win32 post-message execution for native Windows system dialogs.
+
 ## v0.0.9
 *   **☁️ Cloudflare Tunnel Integration**: Added support for Cloudflare Tunnel (`cloudflared`) to securely expose the Web Mirror to the public internet using TryCloudflare, with the link automatically sent to Telegram.
 *   **💬 Responsive & Smart Chat Interface**: Optimized the Web Mirror UI with a responsive design for mobile screens (under 600px wide) and low-height screen viewports (under 520px height), ensuring layout visibility and clean spacing when virtual keyboards are open.

@@ -24,6 +24,9 @@ export class AutoAcceptManager implements vscode.Disposable {
     private interval = 800;
     private port = 9222;
     private clickPatterns: string[] = ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"];
+    private scrollEnabled = true;
+    private scrollPauseMs = 7000;
+    private scrollIntervalMs = 500;
 
     private pendingRequests = new Map<number, { resolve: Function, reject: Function }>();
 
@@ -45,6 +48,9 @@ export class AutoAcceptManager implements vscode.Disposable {
         this.interval = config.get<number>('autoAcceptInterval') ?? 800;
         this.port = config.get<number>('debuggingPort') ?? 9222;
         this.clickPatterns = config.get<string[]>('clickPatterns') ?? ["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all", "Accept"];
+        this.scrollEnabled = config.get<boolean>('scrollEnabled') ?? true;
+        this.scrollPauseMs = config.get<number>('scrollPauseMs') ?? 7000;
+        this.scrollIntervalMs = config.get<number>('scrollIntervalMs') ?? 500;
     }
 
     public getStats(): { totalClicks: number, clickStats: Record<string, number> } {
@@ -261,6 +267,9 @@ export class AutoAcceptManager implements vscode.Disposable {
 
             const response: any = {
                 enabled: this.autoAccept,
+                scrollEnabled: this.scrollEnabled,
+                scrollPauseMs: this.scrollPauseMs,
+                scrollIntervalMs: this.scrollIntervalMs,
                 clickPatterns: activePatterns,
                 acceptInChatOnly: acceptEnabled,
                 clickIntervalMs: this.interval,

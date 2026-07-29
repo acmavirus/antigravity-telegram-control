@@ -23,7 +23,10 @@ export function getSettingsHtml(
     totalClicks: number = 0,
     clickStats: Record<string, number> = {},
     clickLog: Array<{ time: string, button: string, pattern: string }> = [],
-    isInjected: boolean = false
+    isInjected: boolean = false,
+    scrollEnabled: boolean = true,
+    scrollPauseMs: number = 7000,
+    scrollIntervalMs: number = 500
 ): string {
     const t = translations[language] || translations['en'];
     const languages = [
@@ -514,6 +517,21 @@ export function getSettingsHtml(
                 <input type="number" id="auto-accept-interval" value="${autoAcceptInterval}" placeholder="800" min="200">
             </div>
 
+            <div class="field checkbox-field" style="margin-top: 16px;">
+                <input type="checkbox" id="scroll-enabled" ${scrollEnabled ? 'checked' : ''}>
+                <label for="scroll-enabled">${t.autoScrollLabel || 'Smart Auto Scroll (Chat Panel)'}</label>
+            </div>
+
+            <div class="field" style="margin-top: 12px;">
+                <label for="scroll-pause-ms">${t.scrollPauseMsLabel || 'Scroll Pause Duration (ms)'}</label>
+                <input type="number" id="scroll-pause-ms" value="${scrollPauseMs}" placeholder="7000" min="1000">
+            </div>
+
+            <div class="field" style="margin-top: 12px;">
+                <label for="scroll-interval-ms">Scroll Check Interval (ms)</label>
+                <input type="number" id="scroll-interval-ms" value="${scrollIntervalMs}" placeholder="500" min="100">
+            </div>
+
 
 
             <div class="field" style="margin-top: 12px;">
@@ -797,6 +815,9 @@ export function getSettingsHtml(
                 autoRetry: document.getElementById('auto-retry').checked,
                 autoAccept: document.getElementById('auto-accept').checked,
                 autoAcceptInterval: parseInt(document.getElementById('auto-accept-interval').value) || 800,
+                scrollEnabled: document.getElementById('scroll-enabled').checked,
+                scrollPauseMs: parseInt(document.getElementById('scroll-pause-ms').value) || 7000,
+                scrollIntervalMs: parseInt(document.getElementById('scroll-interval-ms').value) || 500,
                 clickPatterns: clickPatterns
             });
             const msg = document.getElementById('auto-msg');

@@ -6,6 +6,9 @@
     // --- Dọn dẹp bản cũ ---
     if (window._agToolIntervals) {
         window._agToolIntervals.forEach(clearInterval);
+        if (window._agScrollListener) {
+            window.removeEventListener('scroll', window._agScrollListener, true);
+        }
     }
     window._agToolIntervals = [];
 
@@ -27,14 +30,12 @@
                 }
             });
         }
-        // Check immediately and periodically for the first 30s
         dismissCorrupt();
         var attempts = 0;
         var timer = setInterval(function () {
             dismissCorrupt();
             if (++attempts > 30) clearInterval(timer);
         }, 1000);
-        // Also watch DOM mutations
         try {
             var observer = new MutationObserver(function () { dismissCorrupt(); });
             var target = document.body || document.documentElement;
@@ -43,13 +44,15 @@
         } catch (e) { }
     })();
 
+    var PAUSE_SCROLL_MS = /*{{PAUSE_SCROLL_MS}}*/7000;
+    var SCROLL_INTERVAL_MS = /*{{SCROLL_INTERVAL_MS}}*/500;
     var CLICK_INTERVAL_MS = /*{{CLICK_INTERVAL_MS}}*/1000;
     var CLICK_PATTERNS = /*{{CLICK_PATTERNS}}*/["Allow", "Always Allow", "Run", "Keep Waiting", "Accept all"];
-    // Accept is handled SEPARATELY (chat-only) — never in CLICK_PATTERNS
     window._agAcceptChatOnly = false;
 
-    // Live ON/OFF flag — exposed on window for all scopes + DevTools access
+    // Live ON/OFF flags — exposed on window
     window._agAutoEnabled = /*{{ENABLED}}*/true;
+    window._agScrollEnabled = /*{{SCROLL_ENABLED}}*/true;
 
     // --- ON/OFF polling via HTTP server (dynamic port discovery) ---
     var AG_HTTP_PORT_START = 48787;
@@ -115,10 +118,18 @@
     function _agApplyConfig(cfg) {
         if (typeof cfg.enabled === 'boolean') {
             if (window._agAutoEnabled !== cfg.enabled) {
-                console.log('[AG Auto] ' + (cfg.enabled ? '✅ BẬT' : '❌ TẮT') + ' (live toggle via HTTP)');
+                console.log('[AG Auto] AutoAccept: ' + (cfg.enabled ? '✅ ON' : '❌ OFF') + ' (live toggle)');
             }
             window._agAutoEnabled = cfg.enabled;
         }
+        if (typeof cfg.scrollEnabled === 'boolean') {
+            if (window._agScrollEnabled !== cfg.scrollEnabled) {
+                console.log('[AG Auto] SmartScroll: ' + (cfg.scrollEnabled ? '✅ ON' : '❌ OFF') + ' (live toggle)');
+            }
+            window._agScrollEnabled = cfg.scrollEnabled;
+        }
+        if (typeof cfg.scrollPauseMs === 'number') PAUSE_SCROLL_MS = cfg.scrollPauseMs;
+        if (typeof cfg.scrollIntervalMs === 'number') SCROLL_INTERVAL_MS = cfg.scrollIntervalMs;
         if (cfg.clickPatterns && Array.isArray(cfg.clickPatterns)) {
             CLICK_PATTERNS = cfg.clickPatterns.filter(function (p) { return p !== 'Accept'; });
         }
@@ -376,8 +387,60 @@
             if (!window._agClickStats[matchedPattern]) window._agClickStats[matchedPattern] = 0;
             window._agClickStats[matchedPattern]++;
         }
-    }, CLICK_INTERVAL_MS);
-    window._agToolIntervals.push(autoClick);
+    // --- 2. SMART AUTO SCROLL ---
+    var _agUserPausedUntil = 0;
+    var _agLastScrollTopMap = new WeakMap();
 
-    console.log("[AG Auto] 🚀 Injected Script Initialized | Patterns:", JSON.stringify(CLICK_PATTERNS));
+    function _agFindChatScrollContainers() {
+        var roots = getAllRoots(document);
+        var containers = [];
+        roots.forEach(function (root) {
+            try {
+                var elms = root.querySelectorAll(
+                    '.antigravity-agent-side-panel, .react-app-container, [class*="chat"], [class*="conversation"], [class*="message-list"], .monaco-scrollable-element'
+                );
+                for (var i = 0; i < elms.length; i++) {
+                    var el = elms[i];
+                    if (el.scrollHeight > el.clientHeight && el.clientHeight > 0) {
+                        containers.push(el);
+                    }
+                }
+            } catch (e) {}
+        });
+        return containers;
+    }
+
+    // Scroll listener to detect manual scroll up by user
+    window._agScrollListener = function (e) {
+        var target = e.target;
+        if (!target || !target.scrollHeight || !target.clientHeight) return;
+        
+        var lastTop = _agLastScrollTopMap.get(target) || 0;
+        var currentTop = target.scrollTop;
+        var distanceToBottom = target.scrollHeight - target.clientHeight - currentTop;
+
+        // If user scrolls UP and is not at the very bottom (> 30px away from bottom)
+        if (currentTop < lastTop && distanceToBottom > 30) {
+            _agUserPausedUntil = Date.now() + PAUSE_SCROLL_MS;
+            console.log('[AG Auto] 📜 User manually scrolled up -> pause auto-scroll for ' + (PAUSE_SCROLL_MS / 1000) + 's');
+        }
+        _agLastScrollTopMap.set(target, currentTop);
+    };
+    window.addEventListener('scroll', window._agScrollListener, true);
+
+    var autoScroll = setInterval(function () {
+        if (!window._agAutoEnabled || !window._agScrollEnabled) return;
+        if (Date.now() < _agUserPausedUntil) return;
+
+        var containers = _agFindChatScrollContainers();
+        containers.forEach(function (c) {
+            var distanceToBottom = c.scrollHeight - c.scrollTop - c.clientHeight;
+            if (distanceToBottom > 5) {
+                c.scrollTop = c.scrollHeight;
+            }
+        });
+    }, SCROLL_INTERVAL_MS);
+    window._agToolIntervals.push(autoScroll);
+
+    console.log("[AG Auto] 🚀 Injected Script Initialized | Patterns:", JSON.stringify(CLICK_PATTERNS) + " | SmartScroll: " + window._agScrollEnabled);
 })();

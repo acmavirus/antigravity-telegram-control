@@ -43,12 +43,31 @@ export interface ModelQuotaInfo {
     time_until_reset_formatted: string;
 }
 
+export interface QuotaLimitItem {
+    name: string;
+    name_key: string;
+    remaining_percentage: number;
+    reset_time?: Date;
+    time_until_reset?: number;
+    time_until_reset_formatted?: string;
+    subtitle?: string;
+}
+
+export interface ModelQuotaGroup {
+    title: string;
+    group_key: 'geminiModels' | 'claudeGptModels' | string;
+    min_remaining_percentage: number;
+    limits: QuotaLimitItem[];
+    models: ModelQuotaInfo[];
+}
+
 export interface QuotaSnapshot {
     timestamp: Date;
     prompt_credits?: PromptCreditsInfo;
     flow_credits?: FlowCreditsInfo;
     user_info?: UserInfo;
     models: ModelQuotaInfo[];
+    model_groups: ModelQuotaGroup[];
 }
 
 export interface ProcessInfo {
@@ -452,25 +471,35 @@ function formatTimeUntilReset(ms: number, reset_time: Date, lang: string): strin
     const mins = Math.ceil(ms / 60000);
     let duration = '';
     if (mins < 60) {
-        duration = `${mins}m`;
+        duration = lang === 'vi' ? `${mins} phút` : `${mins} ${mins === 1 ? 'minute' : 'minutes'}`;
     } else {
         const hours = Math.floor(mins / 60);
+        const remMins = mins % 60;
         if (hours >= 24) {
             const days = Math.floor(hours / 24);
             const remainingHours = hours % 24;
-            duration = lang === 'vi' ? `${days}ngày ${remainingHours}giờ` : `${days}d ${remainingHours}h`;
+            if (remainingHours > 0) {
+                duration = lang === 'vi' 
+                    ? `${days} ngày ${remainingHours} giờ` 
+                    : `${days} ${days === 1 ? 'day' : 'days'}, ${remainingHours} ${remainingHours === 1 ? 'hour' : 'hours'}`;
+            } else {
+                duration = lang === 'vi' 
+                    ? `${days} ngày` 
+                    : `${days} ${days === 1 ? 'day' : 'days'}`;
+            }
         } else {
-            duration = `${hours}h ${mins % 60}m`;
+            if (remMins > 0) {
+                duration = lang === 'vi' 
+                    ? `${hours} giờ ${remMins} phút` 
+                    : `${hours} ${hours === 1 ? 'hour' : 'hours'}, ${remMins} ${remMins === 1 ? 'minute' : 'minutes'}`;
+            } else {
+                duration = lang === 'vi' 
+                    ? `${hours} giờ` 
+                    : `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+            }
         }
     }
-
-    const year = reset_time.getFullYear();
-    const month = String(reset_time.getMonth() + 1).padStart(2, '0');
-    const day = String(reset_time.getDate()).padStart(2, '0');
-    const hour = String(reset_time.getHours()).padStart(2, '0');
-    const minute = String(reset_time.getMinutes()).padStart(2, '0');
-
-    return `${duration} (${day}/${month}/${year} ${hour}:${minute})`;
+    return duration;
 }
 
 async function requestUserStatus(port: number, csrf_token: string): Promise<any> {
@@ -638,7 +667,7 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
                 label: m.label || m.modelOrAlias?.model || 'Unknown Model',
                 model_id: m.modelOrAlias?.model || 'unknown',
                 remaining_fraction: m.quotaInfo.remainingFraction,
-                remaining_percentage: m.quotaInfo.remainingFraction !== undefined ? m.quotaInfo.remainingFraction * 100 : undefined,
+                remaining_percentage: m.quotaInfo.remainingFraction !== undefined ? Math.round(m.quotaInfo.remainingFraction * 100) : undefined,
                 is_exhausted: m.quotaInfo.remainingFraction === 0,
                 reset_time: reset_time,
                 time_until_reset: diff,
@@ -646,11 +675,98 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
             };
         });
 
+    const geminiModelsList: ModelQuotaInfo[] = [];
+    const claudeGptModelsList: ModelQuotaInfo[] = [];
+
+    for (const m of models) {
+        const labelLower = m.label.toLowerCase();
+        const idLower = m.model_id.toLowerCase();
+        if (labelLower.includes('claude') || labelLower.includes('gpt') || idLower.includes('claude') || idLower.includes('gpt') || idLower.includes('openai')) {
+            claudeGptModelsList.push(m);
+        } else {
+            geminiModelsList.push(m);
+        }
+    }
+
+    const buildGroup = (
+        title: string,
+        group_key: 'geminiModels' | 'claudeGptModels',
+        groupModels: ModelQuotaInfo[]
+    ): ModelQuotaGroup | null => {
+        if (groupModels.length === 0) return null;
+
+        let minPct = 100;
+        let minDiff = Number.MAX_SAFE_INTEGER;
+        let repResetTime: Date | undefined;
+        let repResetFormatted = '';
+
+        for (const m of groupModels) {
+            const pct = m.remaining_percentage !== undefined ? m.remaining_percentage : 100;
+            if (pct < minPct) {
+                minPct = pct;
+            }
+            if (m.time_until_reset > 0 && m.time_until_reset < minDiff) {
+                minDiff = m.time_until_reset;
+                repResetTime = m.reset_time;
+                repResetFormatted = m.time_until_reset_formatted;
+            }
+        }
+
+        if (minDiff === Number.MAX_SAFE_INTEGER) {
+            minDiff = 0;
+            repResetFormatted = lang === 'vi' ? 'Sẵn sàng' : 'Ready';
+        }
+
+        const limits: QuotaLimitItem[] = [];
+
+        // 1. Weekly Limit
+        limits.push({
+            name: lang === 'vi' ? 'Hạn mức tuần' : 'Weekly Limit',
+            name_key: 'weeklyLimit',
+            remaining_percentage: 100,
+            time_until_reset_formatted: lang === 'vi' ? 'Sẵn sàng' : 'Ready',
+        });
+
+        // 2. Five Hour Limit
+        const fiveHourPct = Math.round(minPct);
+        const sub = (fiveHourPct < 100 && minDiff > 0)
+            ? (lang === 'vi'
+                ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${repResetFormatted}.`
+                : `You have used some of your 5-hour limit, it will fully refresh in ${repResetFormatted}.`)
+            : undefined;
+
+        limits.push({
+            name: lang === 'vi' ? 'Hạn mức 5 giờ' : 'Five Hour Limit',
+            name_key: 'fiveHourLimit',
+            remaining_percentage: fiveHourPct,
+            reset_time: repResetTime,
+            time_until_reset: minDiff,
+            time_until_reset_formatted: repResetFormatted,
+            subtitle: sub
+        });
+
+        return {
+            title,
+            group_key,
+            min_remaining_percentage: minPct,
+            limits,
+            models: groupModels
+        };
+    };
+
+    const model_groups: ModelQuotaGroup[] = [];
+    const geminiGroup = buildGroup('Gemini Models', 'geminiModels', geminiModelsList);
+    if (geminiGroup) model_groups.push(geminiGroup);
+
+    const claudeGptGroup = buildGroup('Claude and GPT models', 'claudeGptModels', claudeGptModelsList);
+    if (claudeGptGroup) model_groups.push(claudeGptGroup);
+
     return {
         timestamp: new Date(),
         prompt_credits,
         flow_credits,
         user_info,
         models,
+        model_groups,
     };
 }
