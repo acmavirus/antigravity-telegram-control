@@ -408,7 +408,6 @@ export function getSettingsHtml(
         <div class="tab" data-target="agents-tab">Agents</div>
         <div class="tab" data-target="auto-tab">Auto</div>
         <div class="tab" data-target="mirror-tab">Mirror</div>
-        <div class="tab" data-target="stats-tab">Stats</div>
     </div>
 
     <div class="content-container">
@@ -562,6 +561,33 @@ export function getSettingsHtml(
 
             <button id="save-auto" style="margin-top: 16px;">${t.saveAutoBtn || 'Save Automation Settings'}</button>
             <div id="auto-msg" class="msg">✓ Automation settings saved.</div>
+
+            <hr style="margin: 20px 0; border-top: 1px dashed var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,0.2));">
+
+            <h3 style="margin-top: 12px; margin-bottom: 12px;">Click Statistics</h3>
+            
+            <div class="stats-summary-card">
+                <div>Total Auto Accepted Clicks</div>
+                <div id="total-clicks-display" class="stats-summary-val">${totalClicks}</div>
+            </div>
+
+            <div id="stats-chart-container" class="stats-chart">
+                <!-- Chart rows injected by script -->
+            </div>
+
+            <button id="reset-stats" style="color: var(--vscode-errorForeground, #ff5555); margin-bottom: 16px;">
+                Reset Statistics
+            </button>
+
+            <div class="log-card">
+                <div class="log-title-row">
+                    <span class="editor-title">Recent Clicks Log</span>
+                    <button id="clear-click-log" class="secondary" style="width: auto; margin: 0; padding: 2px 8px; font-size: 10px;">Clear</button>
+                </div>
+                <div id="log-list" class="log-container">
+                    <!-- Log entries injected by script -->
+                </div>
+            </div>
         </div>
 
         <!-- Mirror Tab -->
@@ -609,34 +635,6 @@ export function getSettingsHtml(
 
             <div style="margin-top: 16px; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.5;">
                 ${(t.mirrorDescription || 'When enabled, you can access the web interface at: http://localhost:{port}{tokenUrl}').replace('{port}', mirrorPort.toString()).replace('{tokenUrl}', mirrorToken ? '/?token=' + mirrorToken : '')}
-            </div>
-        </div>
-
-        <!-- Stats Tab -->
-        <div id="stats-tab" class="tab-content">
-            <h2>Click Statistics</h2>
-            
-            <div class="stats-summary-card">
-                <div>Total Auto Accepted Clicks</div>
-                <div id="total-clicks-display" class="stats-summary-val">${totalClicks}</div>
-            </div>
-
-            <div id="stats-chart-container" class="stats-chart">
-                <!-- Chart rows injected by script -->
-            </div>
-
-            <button id="reset-stats" style="color: var(--vscode-errorForeground, #ff5555); margin-bottom: 16px;">
-                Reset Statistics
-            </button>
-
-            <div class="log-card">
-                <div class="log-title-row">
-                    <span class="editor-title">Recent Clicks Log</span>
-                    <button id="clear-click-log" class="secondary" style="width: auto; margin: 0; padding: 2px 8px; font-size: 10px;">Clear</button>
-                </div>
-                <div id="log-list" class="log-container">
-                    <!-- Log entries injected by script -->
-                </div>
             </div>
         </div>
     </div>
@@ -772,8 +770,8 @@ export function getSettingsHtml(
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                 document.getElementById(target).classList.add('active');
 
-                // Trigger direct fetch of stats/logs if switching to stats tab
-                if (target === 'stats-tab') {
+                // Trigger direct fetch of stats/logs if switching to auto tab
+                if (target === 'auto-tab') {
                     vscode.postMessage({ command: 'getStats' });
                     vscode.postMessage({ command: 'getClickLog' });
                 }
@@ -857,8 +855,8 @@ export function getSettingsHtml(
 
         // Periodic update of stats
         setInterval(() => {
-            const statsTabActive = document.querySelector('.tab[data-target="stats-tab"]').classList.contains('active');
-            if (statsTabActive) {
+            const autoTabActive = document.querySelector('.tab[data-target="auto-tab"]').classList.contains('active');
+            if (autoTabActive) {
                 vscode.postMessage({ command: 'getStats' });
                 vscode.postMessage({ command: 'getClickLog' });
             }

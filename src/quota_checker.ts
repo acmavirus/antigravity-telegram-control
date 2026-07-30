@@ -743,24 +743,7 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
 
         const limits: QuotaLimitItem[] = [];
 
-        // 1. Weekly Limit
-        const weeklySub = (weeklyPct < 100 && weeklyDiff > 0)
-            ? (lang === 'vi'
-                ? `Bạn đã sử dụng một phần hạn mức tuần, sẽ làm mới hoàn toàn sau ${weeklyFormatted}.`
-                : `You have used some of your weekly limit, it will fully refresh in ${weeklyFormatted}.`)
-            : undefined;
-
-        limits.push({
-            name: lang === 'vi' ? 'Hạn mức tuần' : 'Weekly Limit',
-            name_key: 'weeklyLimit',
-            remaining_percentage: weeklyPct,
-            reset_time: weeklyResetTime,
-            time_until_reset: weeklyDiff,
-            time_until_reset_formatted: weeklyFormatted,
-            subtitle: weeklySub,
-        });
-
-        // 2. Five Hour Limit
+        // 1. Five Hour Limit (Ngày / 5h)
         const fiveHourSub = (fiveHourPct < 100 && fiveHourDiff > 0)
             ? (lang === 'vi'
                 ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${fiveHourFormatted}.`
@@ -775,6 +758,23 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
             time_until_reset: fiveHourDiff,
             time_until_reset_formatted: fiveHourFormatted,
             subtitle: fiveHourSub,
+        });
+
+        // 2. Weekly Limit (Tuần)
+        const weeklySub = (weeklyPct < 100 && weeklyDiff > 0)
+            ? (lang === 'vi'
+                ? `Bạn đã sử dụng một phần hạn mức tuần, sẽ làm mới hoàn toàn sau ${weeklyFormatted}.`
+                : `You have used some of your weekly limit, it will fully refresh in ${weeklyFormatted}.`)
+            : undefined;
+
+        limits.push({
+            name: lang === 'vi' ? 'Hạn mức tuần' : 'Weekly Limit',
+            name_key: 'weeklyLimit',
+            remaining_percentage: weeklyPct,
+            reset_time: weeklyResetTime,
+            time_until_reset: weeklyDiff,
+            time_until_reset_formatted: weeklyFormatted,
+            subtitle: weeklySub,
         });
 
         const minPct = Math.min(weeklyPct, fiveHourPct);

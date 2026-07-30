@@ -4,6 +4,10 @@ All notable changes to the **Antigravity Telegram Control** extension will be do
 
 ---
 
+## v1.0.1
+*   **📊 Status Bar Quota HUD Alignment**: Fixed quota limits display order (5-Hour / Daily limit first, Weekly limit second) and removed redundant text labels on the VS Code status bar for a clean `%/%` percentage readout.
+*   **🎯 Consolidated Automation & Stats**: Merged Click Statistics dashboard and recent logs directly into the **Auto (Automation Settings)** tab for a streamlined UI.
+
 ## v1.0.0 — Major Official Release
 *   **📜 Smart Auto Scroll**: Automatically scrolls the Antigravity chat panel while the agent generates content, pauses when you manually scroll up to read, and resumes when new content is generated.
 *   **🔀 Dynamic Multi-Instance Support**: Micro HTTP IPC server dynamically binds within port range `48787-48850` with port auto-discovery, allowing multiple Antigravity IDE windows to run simultaneously without conflicts.
