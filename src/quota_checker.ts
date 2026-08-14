@@ -531,6 +531,35 @@ async function requestUserStatus(port: number, csrf_token: string): Promise<any>
     throw new Error(`Language server API returned status code ${response.statusCode}`);
 }
 
+async function requestUserQuotaSummary(port: number, csrf_token: string): Promise<any> {
+    try {
+        const data = JSON.stringify({
+            forceRefresh: true,
+        });
+
+        const response = await httpRequest({
+            hostname: '127.0.0.1',
+            port,
+            path: '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary',
+            method: 'POST',
+            headers: {
+                'X-Codeium-Csrf-Token': csrf_token,
+                'Connect-Protocol-Version': '1',
+            },
+            body: data,
+            timeout: 5000,
+            allowFallback: true,
+        });
+
+        if (response.statusCode === 200 && (response.data as any)?.response) {
+            return (response.data as any).response;
+        }
+    } catch {
+        // Fallback to legacy computation if needed
+    }
+    return null;
+}
+
 export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot> {
     powershellTimeoutRetried = false;
     const { strategy, processName } = getPlatformStrategy();
@@ -597,8 +626,12 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
         throw new Error('Could not establish connection to the Antigravity API server on any listening port.');
     }
 
-    // 5. Query user status
-    const statusData = await requestUserStatus(connectPort, info.csrf_token);
+    // 5. Query user status & user quota summary in parallel
+    const [statusData, quotaSummary] = await Promise.all([
+        requestUserStatus(connectPort, info.csrf_token),
+        requestUserQuotaSummary(connectPort, info.csrf_token),
+    ]);
+
     if (!statusData || !statusData.userStatus) {
         throw new Error('Failed to retrieve user status from language server API.');
     }
@@ -688,112 +721,184 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
         }
     }
 
-    const buildGroup = (
-        title: string,
-        group_key: 'geminiModels' | 'claudeGptModels',
-        groupModels: ModelQuotaInfo[]
-    ): ModelQuotaGroup | null => {
-        if (groupModels.length === 0) return null;
+    const model_groups: ModelQuotaGroup[] = [];
 
-        let weeklyPct = 100;
-        let weeklyResetTime: Date | undefined;
-        let weeklyDiff = Number.MAX_SAFE_INTEGER;
-        let weeklyFormatted = '';
+    if (quotaSummary?.groups && Array.isArray(quotaSummary.groups) && quotaSummary.groups.length > 0) {
+        for (const group of quotaSummary.groups) {
+            const title = group.displayName || 'AI Models';
+            const isClaudeGpt = title.toLowerCase().includes('claude') || title.toLowerCase().includes('gpt') || title.toLowerCase().includes('3p');
+            const group_key = isClaudeGpt ? 'claudeGptModels' : 'geminiModels';
+            const groupModels = isClaudeGpt ? claudeGptModelsList : geminiModelsList;
 
-        let fiveHourPct = 100;
-        let fiveHourResetTime: Date | undefined;
-        let fiveHourDiff = Number.MAX_SAFE_INTEGER;
-        let fiveHourFormatted = '';
+            const limits: QuotaLimitItem[] = [];
+            let minPct = 100;
 
-        const FIVE_HOURS_MS = 5 * 3600 * 1000;
+            const buckets = group.buckets || [];
+            const fiveHourBucket = buckets.find((b: any) => b.window === '5h' || b.bucketId?.includes('5h'));
+            const weeklyBucket = buckets.find((b: any) => b.window === 'weekly' || b.bucketId?.includes('weekly'));
 
-        for (const m of groupModels) {
-            const pct = m.remaining_percentage !== undefined ? m.remaining_percentage : 100;
-            const diff = m.time_until_reset;
+            // 1. Five Hour Limit
+            if (fiveHourBucket) {
+                const pct = Math.round((fiveHourBucket.remainingFraction ?? 1) * 100);
+                const resetTime = fiveHourBucket.resetTime ? new Date(fiveHourBucket.resetTime) : undefined;
+                const diff = resetTime ? resetTime.getTime() - Date.now() : 0;
+                const formatted = resetTime ? formatTimeUntilReset(diff, resetTime, lang) : (lang === 'vi' ? 'Sẵn sàng' : 'Ready');
+                const sub = (pct < 100 && diff > 0)
+                    ? (lang === 'vi'
+                        ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${formatted}.`
+                        : `You have used some of your 5-hour limit, it will fully refresh in ${formatted}.`)
+                    : undefined;
 
-            if (diff > FIVE_HOURS_MS) {
-                if (pct < weeklyPct) {
-                    weeklyPct = pct;
-                }
-                if (diff > 0 && diff < weeklyDiff) {
-                    weeklyDiff = diff;
-                    weeklyResetTime = m.reset_time;
-                    weeklyFormatted = m.time_until_reset_formatted;
-                }
-            } else if (diff > 0 && diff <= FIVE_HOURS_MS) {
-                if (pct < fiveHourPct) {
-                    fiveHourPct = pct;
-                }
-                if (diff < fiveHourDiff) {
-                    fiveHourDiff = diff;
-                    fiveHourResetTime = m.reset_time;
-                    fiveHourFormatted = m.time_until_reset_formatted;
+                if (pct < minPct) minPct = pct;
+                limits.push({
+                    name: lang === 'vi' ? 'Hạn mức 5 giờ' : 'Five Hour Limit',
+                    name_key: 'fiveHourLimit',
+                    remaining_percentage: pct,
+                    reset_time: resetTime,
+                    time_until_reset: diff,
+                    time_until_reset_formatted: formatted,
+                    subtitle: sub,
+                });
+            }
+
+            // 2. Weekly Limit
+            if (weeklyBucket) {
+                const pct = Math.round((weeklyBucket.remainingFraction ?? 1) * 100);
+                const resetTime = weeklyBucket.resetTime ? new Date(weeklyBucket.resetTime) : undefined;
+                const diff = resetTime ? resetTime.getTime() - Date.now() : 0;
+                const formatted = resetTime ? formatTimeUntilReset(diff, resetTime, lang) : (lang === 'vi' ? 'Sẵn sàng' : 'Ready');
+                const sub = (pct < 100 && diff > 0)
+                    ? (lang === 'vi'
+                        ? `Bạn đã sử dụng một phần hạn mức tuần, sẽ làm mới hoàn toàn sau ${formatted}.`
+                        : `You have used some of your weekly limit, it will fully refresh in ${formatted}.`)
+                    : undefined;
+
+                if (pct < minPct) minPct = pct;
+                limits.push({
+                    name: lang === 'vi' ? 'Hạn mức tuần' : 'Weekly Limit',
+                    name_key: 'weeklyLimit',
+                    remaining_percentage: pct,
+                    reset_time: resetTime,
+                    time_until_reset: diff,
+                    time_until_reset_formatted: formatted,
+                    subtitle: sub,
+                });
+            }
+
+            model_groups.push({
+                title,
+                group_key,
+                min_remaining_percentage: minPct,
+                limits,
+                models: groupModels,
+            });
+        }
+    } else {
+        // Fallback computation
+        const buildGroup = (
+            title: string,
+            group_key: 'geminiModels' | 'claudeGptModels',
+            groupModels: ModelQuotaInfo[]
+        ): ModelQuotaGroup | null => {
+            if (groupModels.length === 0) return null;
+
+            let weeklyPct = 100;
+            let weeklyResetTime: Date | undefined;
+            let weeklyDiff = Number.MAX_SAFE_INTEGER;
+            let weeklyFormatted = '';
+
+            let fiveHourPct = 100;
+            let fiveHourResetTime: Date | undefined;
+            let fiveHourDiff = Number.MAX_SAFE_INTEGER;
+            let fiveHourFormatted = '';
+
+            const FIVE_HOURS_MS = 5 * 3600 * 1000;
+
+            for (const m of groupModels) {
+                const pct = m.remaining_percentage !== undefined ? m.remaining_percentage : 100;
+                const diff = m.time_until_reset;
+
+                if (diff > FIVE_HOURS_MS) {
+                    if (pct < weeklyPct) {
+                        weeklyPct = pct;
+                    }
+                    if (diff > 0 && diff < weeklyDiff) {
+                        weeklyDiff = diff;
+                        weeklyResetTime = m.reset_time;
+                        weeklyFormatted = m.time_until_reset_formatted;
+                    }
+                } else if (diff > 0 && diff <= FIVE_HOURS_MS) {
+                    if (pct < fiveHourPct) {
+                        fiveHourPct = pct;
+                    }
+                    if (diff < fiveHourDiff) {
+                        fiveHourDiff = diff;
+                        fiveHourResetTime = m.reset_time;
+                        fiveHourFormatted = m.time_until_reset_formatted;
+                    }
                 }
             }
-        }
 
-        if (weeklyDiff === Number.MAX_SAFE_INTEGER) {
-            weeklyDiff = 0;
-            weeklyFormatted = lang === 'vi' ? 'Sẵn sàng' : 'Ready';
-        }
-        if (fiveHourDiff === Number.MAX_SAFE_INTEGER) {
-            fiveHourDiff = 0;
-            fiveHourFormatted = lang === 'vi' ? 'Sẵn sàng' : 'Ready';
-        }
+            if (weeklyDiff === Number.MAX_SAFE_INTEGER) {
+                weeklyDiff = 0;
+                weeklyFormatted = lang === 'vi' ? 'Sẵn sàng' : 'Ready';
+            }
+            if (fiveHourDiff === Number.MAX_SAFE_INTEGER) {
+                fiveHourDiff = 0;
+                fiveHourFormatted = lang === 'vi' ? 'Sẵn sàng' : 'Ready';
+            }
 
-        const limits: QuotaLimitItem[] = [];
+            const limits: QuotaLimitItem[] = [];
 
-        // 1. Five Hour Limit (Ngày / 5h)
-        const fiveHourSub = (fiveHourPct < 100 && fiveHourDiff > 0)
-            ? (lang === 'vi'
-                ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${fiveHourFormatted}.`
-                : `You have used some of your 5-hour limit, it will fully refresh in ${fiveHourFormatted}.`)
-            : undefined;
+            const fiveHourSub = (fiveHourPct < 100 && fiveHourDiff > 0)
+                ? (lang === 'vi'
+                    ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${fiveHourFormatted}.`
+                    : `You have used some of your 5-hour limit, it will fully refresh in ${fiveHourFormatted}.`)
+                : undefined;
 
-        limits.push({
-            name: lang === 'vi' ? 'Hạn mức 5 giờ' : 'Five Hour Limit',
-            name_key: 'fiveHourLimit',
-            remaining_percentage: fiveHourPct,
-            reset_time: fiveHourResetTime,
-            time_until_reset: fiveHourDiff,
-            time_until_reset_formatted: fiveHourFormatted,
-            subtitle: fiveHourSub,
-        });
+            limits.push({
+                name: lang === 'vi' ? 'Hạn mức 5 giờ' : 'Five Hour Limit',
+                name_key: 'fiveHourLimit',
+                remaining_percentage: fiveHourPct,
+                reset_time: fiveHourResetTime,
+                time_until_reset: fiveHourDiff,
+                time_until_reset_formatted: fiveHourFormatted,
+                subtitle: fiveHourSub,
+            });
 
-        // 2. Weekly Limit (Tuần)
-        const weeklySub = (weeklyPct < 100 && weeklyDiff > 0)
-            ? (lang === 'vi'
-                ? `Bạn đã sử dụng một phần hạn mức tuần, sẽ làm mới hoàn toàn sau ${weeklyFormatted}.`
-                : `You have used some of your weekly limit, it will fully refresh in ${weeklyFormatted}.`)
-            : undefined;
+            const weeklySub = (weeklyPct < 100 && weeklyDiff > 0)
+                ? (lang === 'vi'
+                    ? `Bạn đã sử dụng một phần hạn mức tuần, sẽ làm mới hoàn toàn sau ${weeklyFormatted}.`
+                    : `You have used some of your weekly limit, it will fully refresh in ${weeklyFormatted}.`)
+                : undefined;
 
-        limits.push({
-            name: lang === 'vi' ? 'Hạn mức tuần' : 'Weekly Limit',
-            name_key: 'weeklyLimit',
-            remaining_percentage: weeklyPct,
-            reset_time: weeklyResetTime,
-            time_until_reset: weeklyDiff,
-            time_until_reset_formatted: weeklyFormatted,
-            subtitle: weeklySub,
-        });
+            limits.push({
+                name: lang === 'vi' ? 'Hạn mức tuần' : 'Weekly Limit',
+                name_key: 'weeklyLimit',
+                remaining_percentage: weeklyPct,
+                reset_time: weeklyResetTime,
+                time_until_reset: weeklyDiff,
+                time_until_reset_formatted: weeklyFormatted,
+                subtitle: weeklySub,
+            });
 
-        const minPct = Math.min(weeklyPct, fiveHourPct);
+            const minPct = Math.min(weeklyPct, fiveHourPct);
 
-        return {
-            title,
-            group_key,
-            min_remaining_percentage: minPct,
-            limits,
-            models: groupModels
+            return {
+                title,
+                group_key,
+                min_remaining_percentage: minPct,
+                limits,
+                models: groupModels
+            };
         };
-    };
 
-    const model_groups: ModelQuotaGroup[] = [];
-    const geminiGroup = buildGroup('Gemini Models', 'geminiModels', geminiModelsList);
-    if (geminiGroup) model_groups.push(geminiGroup);
+        const geminiGroup = buildGroup('Gemini Models', 'geminiModels', geminiModelsList);
+        if (geminiGroup) model_groups.push(geminiGroup);
 
-    const claudeGptGroup = buildGroup('Claude and GPT models', 'claudeGptModels', claudeGptModelsList);
-    if (claudeGptGroup) model_groups.push(claudeGptGroup);
+        const claudeGptGroup = buildGroup('Claude and GPT models', 'claudeGptModels', claudeGptModelsList);
+        if (claudeGptGroup) model_groups.push(claudeGptGroup);
+    }
 
     return {
         timestamp: new Date(),
