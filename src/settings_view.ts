@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { translations } from './i18n';
+import { StoredAccount } from './account_manager';
 
 export function getSettingsHtml(
     token: string,
@@ -26,7 +27,10 @@ export function getSettingsHtml(
     isInjected: boolean = false,
     scrollEnabled: boolean = true,
     scrollPauseMs: number = 7000,
-    scrollIntervalMs: number = 500
+    scrollIntervalMs: number = 500,
+    storedAccounts: StoredAccount[] = [],
+    currentAccount: { email: string, name: string } | null = null,
+    autoRotateAccounts: boolean = false
 ): string {
     const t = translations[language] || translations['en'];
     const languages = [
@@ -396,15 +400,147 @@ export function getSettingsHtml(
             white-space: nowrap;
         }
 
-        .log-pattern {
-            color: var(--vscode-textLink-activeForeground, #3794ff);
-            font-weight: bold;
+        /* Accounts Tab */
+        .account-card {
+            border: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,0.2));
+            border-radius: 6px;
+            padding: 12px;
+            background: var(--vscode-welcomePage-tileBackground, rgba(128,128,128,0.04));
+            margin-bottom: 12px;
+            position: relative;
+            transition: border-color 0.2s;
+        }
+        .account-card.current-session-card {
+            border-left: 3px solid var(--vscode-textLink-activeForeground, #3794ff);
+        }
+        .account-card.active-account-card {
+            border-left: 3px solid #2ecc71;
+            background: rgba(46, 204, 113, 0.03);
+        }
+        .account-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        .account-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--vscode-textLink-activeForeground, #3794ff);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+        .account-avatar.avatar-active {
+            background: #2ecc71;
+        }
+        .account-info {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+        }
+        .account-name {
+            font-weight: 600;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .account-email {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 1px;
+        }
+        .account-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .account-badge.badge-active {
+            background: rgba(46, 204, 113, 0.18);
+            color: #2ecc71;
+        }
+        .account-badge.badge-offline {
+            background: rgba(128, 128, 128, 0.2);
+            color: var(--vscode-descriptionForeground);
+        }
+        .account-meta {
+            font-size: 10px;
+            color: var(--vscode-descriptionForeground);
+            margin: 6px 0;
+        }
+        .account-meta code {
+            font-family: var(--vscode-editor-font-family, monospace);
+            padding: 1px 4px;
+            background: rgba(128, 128, 128, 0.15);
+            border-radius: 3px;
+        }
+        .account-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .account-actions button {
+            width: auto;
+            margin: 0;
+            padding: 5px 12px;
+            font-size: 11px;
+            border-radius: 3px;
+            flex: 1;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .account-actions .account-active-badge {
+            flex: 1;
+            font-size: 11px;
+            font-weight: 600;
+            color: #2ecc71;
+            background: rgba(46, 204, 113, 0.12);
+            border: 1px solid rgba(46, 204, 113, 0.25);
+            border-radius: 3px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .account-actions button.delete-btn {
+            flex: 0 0 28px;
+            width: 28px;
+            height: 28px;
+            min-width: 28px;
+            padding: 0;
+            background: transparent;
+            color: #e74c3c;
+            border: 1px solid rgba(231, 76, 60, 0.35);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .account-actions button.delete-btn:hover {
+            background: rgba(231, 76, 60, 0.15);
+            border-color: #e74c3c;
         }
     </style>
 </head>
 <body>
     <div class="tabs">
         <div class="tab active" data-target="settings-tab">Settings</div>
+        <div class="tab" data-target="accounts-tab">Accounts</div>
         <div class="tab" data-target="agents-tab">Agents</div>
         <div class="tab" data-target="auto-tab">Auto</div>
         <div class="tab" data-target="mirror-tab">Mirror</div>
@@ -451,9 +587,101 @@ export function getSettingsHtml(
                 <span>/stop</span> – Stop agent generation<br>
                 <span>/alarm</span> – Alarm when finished<br>
                 <span>/check</span> – Check completion manually<br>
+                <span>/quota</span> – View Quota and Prompt limits<br>
+                <span>/accounts</span> – List Google/Antigravity accounts<br>
+                <span>/switch</span> &lt;id&gt; – Switch account from Telegram<br>
+                <span>/save_account</span> – Save current login snapshot<br>
                 <span>/cmd</span> &lt;command&gt; – Run in terminal<br>
                 <span>/help</span> – Show commands
             </div>
+        </div>
+
+        <!-- Accounts Tab -->
+        <div id="accounts-tab" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h2 style="margin: 0;">Account Management</h2>
+                <button id="btn-refresh-account" class="secondary" style="width: auto; margin: 0; padding: 4px 8px; font-size: 10px;" title="Refresh current account details from IDE">🔄 Refresh Info</button>
+            </div>
+
+            <!-- Current Active Account Card -->
+            <div class="account-card current-session-card">
+                <div class="account-header">
+                    <div class="account-avatar">
+                        ${currentAccount && currentAccount.name ? currentAccount.name.charAt(0).toUpperCase() : (currentAccount && currentAccount.email ? currentAccount.email.charAt(0).toUpperCase() : '?')}
+                    </div>
+                    <div class="account-info">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span class="account-name">${currentAccount ? currentAccount.name : 'No Account Connected'}</span>
+                            <span class="account-badge ${currentAccount ? 'badge-active' : 'badge-offline'}">${currentAccount ? 'Active' : 'Logged Out'}</span>
+                        </div>
+                        <div class="account-email">${currentAccount ? currentAccount.email : 'Please login to Google in Antigravity IDE'}</div>
+                    </div>
+                </div>
+
+                <div class="field" style="margin-top: 10px; margin-bottom: 0;">
+                    <input type="text" id="snapshot-name" placeholder="Optional custom name for snapshot..." style="margin-bottom: 6px;">
+                    <button id="btn-save-current-account" class="secondary">📸 Save Current Account Snapshot</button>
+                </div>
+            </div>
+
+            <!-- Guide Card -->
+            <div class="account-card" style="background: rgba(55, 148, 255, 0.05); border: 1px dashed rgba(55, 148, 255, 0.3);">
+                <div style="font-weight: 600; font-size: 11px; margin-bottom: 4px; color: var(--vscode-textLink-activeForeground, #3794ff);">
+                    💡 Cách thêm tài khoản Google mới:
+                </div>
+                <div style="font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.5;">
+                    1. Đăng nhập tài khoản Google thứ 2 trên Antigravity IDE (Click biểu tượng <strong>Accounts 👤</strong> ở góc dưới cùng bên trái IDE hoặc avatar góc chat).<br>
+                    2. Bấm nút <strong>🔄 Refresh Info</strong> ở trên để nạp thông tin tài khoản mới.<br>
+                    3. Nhập tên gợi nhớ và bấm <strong>📸 Save Current Account Snapshot</strong>.
+                </div>
+            </div>
+
+            <!-- Auto Rotate Settings Card -->
+            <div class="account-card">
+                <div class="field checkbox-field" style="margin-bottom: 8px;">
+                    <input type="checkbox" id="auto-rotate-accounts" ${autoRotateAccounts ? 'checked' : ''}>
+                    <label for="auto-rotate-accounts"><strong>Auto-Rotate Account on Quota Limit</strong></label>
+                </div>
+                <small style="color: var(--vscode-descriptionForeground); display: block; margin-bottom: 10px; line-height: 1.4;">
+                    Automatically switches to the next available saved account when the current account hits 98%+ model quota or runs out of credits.
+                </small>
+                <button id="btn-save-accounts-config" class="secondary" style="width: 100%;">Save Rotation Settings</button>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin: 16px 0 8px;">
+                <h2 style="margin: 0;">Saved Accounts (${storedAccounts.length})</h2>
+                ${storedAccounts.length > 1 ? '<button id="btn-rotate-now" class="secondary" style="width: auto; margin: 0; padding: 3px 8px; font-size: 10px;">🔄 Rotate Next</button>' : ''}
+            </div>
+
+            <div id="stored-accounts-list">
+                ${storedAccounts.length === 0 ? '<div style="font-size: 11px; color: var(--vscode-descriptionForeground); text-align: center; padding: 16px;">No saved accounts yet. Click "Save Current Account Snapshot" above to save your account.</div>' : ''}
+                ${storedAccounts.map(acc => {
+                    const isActive = currentAccount && currentAccount.email.toLowerCase() === acc.email.toLowerCase();
+                    const initial = (acc.name || acc.email || 'U').charAt(0).toUpperCase();
+                    return `
+                    <div class="account-card ${isActive ? 'active-account-card' : ''}">
+                        <div class="account-header">
+                            <div class="account-avatar ${isActive ? 'avatar-active' : ''}">${initial}</div>
+                            <div class="account-info">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span class="account-name">${acc.name}</span>
+                                    ${isActive ? '<span class="account-badge badge-active">Current</span>' : ''}
+                                </div>
+                                <div class="account-email">${acc.email}</div>
+                            </div>
+                        </div>
+                        <div class="account-meta">
+                            ID: <code>${acc.id}</code>
+                        </div>
+                        <div class="account-actions">
+                            ${!isActive ? `<button class="btn-switch-account" data-id="${acc.id}">Switch to this Account</button>` : '<div class="account-active-badge">✓ Active in IDE</div>'}
+                            <button class="delete-btn btn-delete-account" data-id="${acc.id}" title="Delete snapshot">🗑️</button>
+                        </div>
+                    </div>
+                    `;
+                }).join('')}
+            </div>
+            <div id="accounts-msg" class="msg">✓ Account settings updated.</div>
         </div>
 
         <!-- Agents Tab -->
@@ -883,6 +1111,66 @@ export function getSettingsHtml(
 
         document.getElementById('btn-uninstall').addEventListener('click', () => {
             vscode.postMessage({ command: 'uninstallScript' });
+        });
+
+        // Accounts Tab Actions
+        const btnSaveCurrentAccount = document.getElementById('btn-save-current-account');
+        if (btnSaveCurrentAccount) {
+            btnSaveCurrentAccount.addEventListener('click', () => {
+                const nameInput = document.getElementById('snapshot-name');
+                vscode.postMessage({
+                    command: 'saveCurrentAccount',
+                    name: nameInput ? nameInput.value.trim() : ''
+                });
+            });
+        }
+
+        const btnRefreshAccount = document.getElementById('btn-refresh-account');
+        if (btnRefreshAccount) {
+            btnRefreshAccount.addEventListener('click', () => {
+                vscode.postMessage({ command: 'refreshAccount' });
+            });
+        }
+
+        const btnSaveAccountsConfig = document.getElementById('btn-save-accounts-config');
+        if (btnSaveAccountsConfig) {
+            btnSaveAccountsConfig.addEventListener('click', () => {
+                const autoRotateCheck = document.getElementById('auto-rotate-accounts');
+                vscode.postMessage({
+                    command: 'saveAccountsConfig',
+                    autoRotateAccounts: autoRotateCheck ? autoRotateCheck.checked : false
+                });
+                const msg = document.getElementById('accounts-msg');
+                if (msg) {
+                    msg.classList.add('show');
+                    setTimeout(() => msg.classList.remove('show'), 3000);
+                }
+            });
+        }
+
+        const btnRotateNow = document.getElementById('btn-rotate-now');
+        if (btnRotateNow) {
+            btnRotateNow.addEventListener('click', () => {
+                vscode.postMessage({ command: 'rotateAccount' });
+            });
+        }
+
+        document.querySelectorAll('.btn-switch-account').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const targetId = e.currentTarget.getAttribute('data-id');
+                if (targetId) {
+                    vscode.postMessage({ command: 'switchAccount', accountId: targetId });
+                }
+            });
+        });
+
+        document.querySelectorAll('.btn-delete-account').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const targetId = e.currentTarget.getAttribute('data-id');
+                if (targetId) {
+                    vscode.postMessage({ command: 'deleteAccount', accountId: targetId });
+                }
+            });
         });
 
         document.getElementById('autofind').addEventListener('click', () => {

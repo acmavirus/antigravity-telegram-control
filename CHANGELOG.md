@@ -4,8 +4,14 @@ All notable changes to the **Antigravity Telegram Control** extension will be do
 
 ---
 
-## v1.0.1
-*   **📊 Status Bar Quota HUD Alignment**: Fixed quota limits display order (5-Hour / Daily limit first, Weekly limit second) and removed redundant text labels on the VS Code status bar for a clean `%/%` percentage readout.
+## v1.0.1 — Multi-Account Management & Quota Auto-Rotation
+*   **👥 Multi-Account Management**: Seamlessly manage, snapshot, and switch between multiple Google/Antigravity accounts directly in Antigravity IDE and remotely via Telegram.
+*   **🤖 Telegram Bot Commands**: Added `/accounts` (list all accounts & active status), `/switch <id|index>` (instant account switching), `/save_account [name]` (snapshot current login), and `/rotate_account` (round-robin account cycling).
+*   **🔄 Auto-Rotation on Quota Depletion**: Automatically rotates to the next available saved account whenever the active account's 5-Hour or Daily quota reaches 98%+ limit, keeping agents working 24/7 without interruption.
+*   **💻 Native Sidebar Accounts Tab**: Dedicated "Accounts" panel in Webview settings with one-click snapshot, account switching, deletion, auto-rotation settings, and a `🔄 Refresh Info` button.
+*   **⚡ Enhanced Language Server Process Discovery**: Completely overhauled process discovery logic across Windows, macOS, and Linux to reliably detect the Antigravity backend language server processes.
+*   **🔒 Robust CSRF & Port Extraction**: Improved regex parsing to extract dynamic port, CSRF token, and extension server endpoints directly from process command lines without false positives.
+*   **📊 Status Bar Quota HUD Alignment**: Clean `%/%` percentage readout for prompt credit and model quotas directly on the VS Code status bar.
 *   **🎯 Consolidated Automation & Stats**: Merged Click Statistics dashboard and recent logs directly into the **Auto (Automation Settings)** tab for a streamlined UI.
 
 ## v1.0.0 — Major Official Release

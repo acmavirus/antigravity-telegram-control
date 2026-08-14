@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 import { fetchQuotaInfo, QuotaSnapshot } from './quota_checker';
 import { t } from './i18n';
+import { AccountManager } from './account_manager';
 
 export class StatusBarManager implements vscode.Disposable {
     private item: vscode.StatusBarItem;
     private timer: NodeJS.Timeout | undefined;
+    private lastAutoRotateTime = 0;
 
     constructor(context: vscode.ExtensionContext) {
         this.item = vscode.window.createStatusBarItem(
@@ -45,6 +47,7 @@ export class StatusBarManager implements vscode.Disposable {
         try {
             const snapshot = await fetchQuotaInfo(lang);
             this.render(snapshot);
+            await this.checkAutoRotate(snapshot);
         } catch (e: any) {
             const errMessage = e.message || '';
             if (errMessage.toLowerCase().includes('process not found') || errMessage.toLowerCase().includes('not found')) {
@@ -55,6 +58,49 @@ export class StatusBarManager implements vscode.Disposable {
                 this.item.tooltip = t('fetchError', { msg: errMessage });
             }
             this.item.show();
+        }
+    }
+
+    private async checkAutoRotate(snapshot: QuotaSnapshot): Promise<void> {
+        const autoRotate = vscode.workspace.getConfiguration('antigravityTelegramControl').get<boolean>('autoRotateAccounts') ?? false;
+        if (!autoRotate) {
+            return;
+        }
+
+        // Throttle auto-rotation to once every 3 minutes to prevent rapid looping
+        const now = Date.now();
+        if (now - this.lastAutoRotateTime < 180000) {
+            return;
+        }
+
+        let isExhausted = false;
+        if (snapshot.prompt_credits && snapshot.prompt_credits.available <= 0 && snapshot.prompt_credits.monthly > 0) {
+            isExhausted = true;
+        }
+
+        if (!isExhausted && snapshot.model_groups && snapshot.model_groups.length > 0) {
+            for (const group of snapshot.model_groups) {
+                const fiveHour = group.limits.find(l => l.name_key === 'fiveHourLimit');
+                if (fiveHour && fiveHour.remaining_percentage <= 2) {
+                    isExhausted = true;
+                    break;
+                }
+            }
+        }
+
+        if (isExhausted) {
+            this.lastAutoRotateTime = now;
+            try {
+                const accountMgr = AccountManager.getInstance();
+                const rotated = accountMgr.rotateAccount();
+                if (rotated) {
+                    vscode.window.showInformationMessage(
+                        `🔄 Quota depleted! Auto-rotated to account: ${rotated.name} (${rotated.email})`
+                    );
+                }
+            } catch (err) {
+                console.error('StatusBarManager: Auto-rotate error', err);
+            }
         }
     }
 
