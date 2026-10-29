@@ -2,7 +2,7 @@
     "name": "antigravity-telegram-control",
     "displayName": "Antigravity Telegram Control",
     "description": "Control Antigravity Agent via Telegram and take screenshots.",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "publisher": "acmatvjrus",
     "repository": {
         "type": "git",
@@ -53,18 +53,6 @@
             {
                 "command": "antigravity-telegram-control.uninstallScript",
                 "title": "Telegram: Remove Automation Script"
-            },
-            {
-                "command": "antigravity-telegram-control.saveCurrentAccount",
-                "title": "Telegram: Save Current Account Snapshot"
-            },
-            {
-                "command": "antigravity-telegram-control.switchAccount",
-                "title": "Telegram: Switch Account"
-            },
-            {
-                "command": "antigravity-telegram-control.rotateAccount",
-                "title": "Telegram: Rotate Next Account"
             }
         ],
         "viewsContainers": {
@@ -193,11 +181,6 @@
                     "type": "string",
                     "default": "",
                     "description": "Ngrok Authtoken (required if using ngrok and not configured globally)"
-                },
-                "antigravityTelegramControl.autoRotateAccounts": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Automatically rotate to the next saved account when quota limit is reached or credits run out"
                 },
 
                 "antigravityTelegramControl.clickPatterns": {

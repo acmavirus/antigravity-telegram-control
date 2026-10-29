@@ -4,6 +4,13 @@ All notable changes to the **Antigravity Telegram Control** extension will be do
 
 ---
 
+## v1.0.3 — Fix Quota & Status Bar HUD for Antigravity Updates
+*   **⚡ Modern Antigravity Process Discovery**: Fixed quota HUD and `/quota` bot command failure after Antigravity IDE updates. Added automatic detection for the new `agy.exe` (Windows) and `agy` (macOS/Linux) binary alongside legacy `language_server` processes.
+*   **🔌 Dynamic Port & Parameter Parsing**: Added support for `--hub-port` and `--app_data_dir=...` argument syntax, ensuring instant port resolution and CSRF token extraction across all IDE versions.
+*   **🗑️ Removed Account Management**: Cleaned up the Accounts management tab, commands, and background listeners as requested.
+
+## v1.0.2 — Injected AutoScript Fix & IDE Compatibility
+
 ## v1.0.1 — Multi-Account Management & Quota Auto-Rotation
 *   **👥 Multi-Account Management**: Seamlessly manage, snapshot, and switch between multiple Google/Antigravity accounts directly in Antigravity IDE and remotely via Telegram.
 *   **🤖 Telegram Bot Commands**: Added `/accounts` (list all accounts & active status), `/switch <id|index>` (instant account switching), `/save_account [name]` (snapshot current login), and `/rotate_account` (round-robin account cycling).

@@ -387,6 +387,9 @@
             if (!window._agClickStats[matchedPattern]) window._agClickStats[matchedPattern] = 0;
             window._agClickStats[matchedPattern]++;
         }
+    }, CLICK_INTERVAL_MS);
+    window._agToolIntervals.push(autoClick);
+
     // --- 2. SMART AUTO SCROLL ---
     var _agUserPausedUntil = 0;
     var _agLastScrollTopMap = new WeakMap();

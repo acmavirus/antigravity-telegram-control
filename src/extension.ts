@@ -13,7 +13,6 @@ import { StatusBarManager } from './status_bar';
 import { AutoAcceptManager } from './auto_accept';
 import { MirrorServerManager } from './mirror_server';
 import { installScript, uninstallScript, clearV8CodeCache, updateProductChecksums, writeConfigJson } from './workbench_injector';
-import { AccountManager } from './account_manager';
 
 let bot: Telegraf | undefined;
 let lockManager: BotLockManager | undefined;
@@ -93,11 +92,7 @@ const SLASH_COMMANDS = [
     { command: 'check', description: 'Manually check if the agent has finished responding' },
     { command: 'stop', description: 'Stop the agent if it is currently generating' },
     { command: 'alarm', description: 'Notify when Agent finishes responding (Long-poll)' },
-    { command: 'quota', description: 'Show current prompt credits and model quota limits' },
-    { command: 'accounts', description: 'List all saved Google/Antigravity accounts' },
-    { command: 'switch', description: 'Switch account: /switch <id, email, or index>' },
-    { command: 'save_account', description: 'Save current account snapshot: /save_account [name]' },
-    { command: 'rotate_account', description: 'Rotate to the next available account' }
+    { command: 'quota', description: 'Show current prompt credits and model quota limits' }
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -474,140 +469,6 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
             }
         });
 
-        bot.command('accounts', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
-            try {
-                const accountMgr = AccountManager.getInstance();
-                const current = accountMgr.getCurrentAccount();
-                const stored = accountMgr.getStoredAccounts();
-
-                let text = `👥 *Antigravity Accounts*\n\n`;
-                if (current) {
-                    text += `🟢 *Active:* ${current.name} (${current.email})\n\n`;
-                } else {
-                    text += `⚪ *Active:* _None / Logged out_\n\n`;
-                }
-
-                if (stored.length === 0) {
-                    text += `_No accounts saved yet. Use /save_account to save the current account._\n`;
-                } else {
-                    text += `*Saved Accounts (${stored.length}):*\n`;
-                    stored.forEach((acc, index) => {
-                        const isActive = current && current.email.toLowerCase() === acc.email.toLowerCase();
-                        const badge = isActive ? ' [ACTIVE]' : '';
-                        text += `${index + 1}. *${acc.name}*${badge}\n`;
-                        text += `   📧 \`${acc.email}\`\n`;
-                        text += `   🆔 \`/switch ${index + 1}\` or \`/switch ${acc.id}\`\n\n`;
-                    });
-                }
-
-                text += `\n💡 *Commands:*\n• \`/save_account [name]\` — Save current login\n• \`/switch <1-${stored.length || 1}>\` — Switch account\n• \`/rotate_account\` — Rotate to next account`;
-
-                ctx.reply(text, { parse_mode: 'Markdown' });
-            } catch (e: any) {
-                ctx.reply(`❌ Failed to list accounts: ${e.message}`);
-            }
-        });
-
-        bot.command('switch', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
-            const parts = ctx.message.text.split(' ');
-            parts.shift(); // remove /switch
-            const targetParam = parts.join(' ').trim();
-            if (!targetParam) {
-                ctx.reply(`Usage: /switch <account_number, email, or id>\n\nUse /accounts to see list.`);
-                return;
-            }
-
-            try {
-                const accountMgr = AccountManager.getInstance();
-                const stored = accountMgr.getStoredAccounts();
-
-                let identifier = targetParam;
-                const indexNum = parseInt(targetParam, 10);
-                if (!isNaN(indexNum) && indexNum >= 1 && indexNum <= stored.length) {
-                    identifier = stored[indexNum - 1].id;
-                }
-
-                const result = accountMgr.switchAccount(identifier);
-                await ctx.reply(`✅ *Account Switched Successfully!*\n\n👤 *Active Account:* ${result.account.name}\n📧 *Email:* \`${result.account.email}\`\n\n_Credentials updated in IDE database._`, { parse_mode: 'Markdown' });
-
-                // Refresh quota status bar
-                if (statusBarManager) {
-                    statusBarManager.update();
-                }
-            } catch (e: any) {
-                ctx.reply(`❌ Switch failed: ${e.message}`);
-            }
-        });
-
-        bot.command('save_account', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
-            const parts = ctx.message.text.split(' ');
-            parts.shift();
-            const customName = parts.join(' ').trim();
-
-            try {
-                const accountMgr = AccountManager.getInstance();
-                const saved = accountMgr.saveCurrentAccount(customName || undefined);
-                if (saved) {
-                    ctx.reply(`✅ *Account Saved to Storage!*\n\n👤 *Name:* ${saved.name}\n📧 *Email:* \`${saved.email}\`\n🆔 *ID:* \`${saved.id}\``, { parse_mode: 'Markdown' });
-                } else {
-                    ctx.reply(`❌ No active account found in Antigravity IDE.`);
-                }
-            } catch (e: any) {
-                ctx.reply(`❌ Failed to save account: ${e.message}`);
-            }
-        });
-
-        bot.command('rotate_account', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
-            try {
-                const accountMgr = AccountManager.getInstance();
-                const rotated = accountMgr.rotateAccount();
-                if (rotated) {
-                    ctx.reply(`🔄 *Rotated to Next Account!*\n\n👤 *Active Account:* ${rotated.name}\n📧 *Email:* \`${rotated.email}\``, { parse_mode: 'Markdown' });
-                    if (statusBarManager) {
-                        statusBarManager.update();
-                    }
-                } else {
-                    ctx.reply(`ℹ️ Need at least 2 saved accounts to rotate. Use /save_account to add accounts.`);
-                }
-            } catch (e: any) {
-                ctx.reply(`❌ Rotate failed: ${e.message}`);
-            }
-        });
-
-        bot.command('delete_account', async (ctx) => {
-            if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
-            const parts = ctx.message.text.split(' ');
-            parts.shift();
-            const targetParam = parts.join(' ').trim();
-            if (!targetParam) {
-                ctx.reply(`Usage: /delete_account <index, email, or id>`);
-                return;
-            }
-
-            try {
-                const accountMgr = AccountManager.getInstance();
-                const stored = accountMgr.getStoredAccounts();
-                let identifier = targetParam;
-                const indexNum = parseInt(targetParam, 10);
-                if (!isNaN(indexNum) && indexNum >= 1 && indexNum <= stored.length) {
-                    identifier = stored[indexNum - 1].id;
-                }
-
-                const deleted = accountMgr.deleteAccount(identifier);
-                if (deleted) {
-                    ctx.reply(`🗑️ *Account Deleted from Storage.*`, { parse_mode: 'Markdown' });
-                } else {
-                    ctx.reply(`❌ Account '${targetParam}' not found in storage.`);
-                }
-            } catch (e: any) {
-                ctx.reply(`❌ Delete failed: ${e.message}`);
-            }
-        });
-
         bot.command('cmd', async (ctx) => {
             if (allowedChatId && ctx.chat.id.toString() !== allowedChatId) { ctx.reply(t('unauthorized')); return; }
             const parts = ctx.message.text.split(' ');
@@ -781,102 +642,6 @@ export function activate(context: vscode.ExtensionContext) {
                 }, async () => {
                     await statusBarManager!.update();
                 });
-            }
-        }),
-
-        vscode.commands.registerCommand('antigravity-telegram-control.saveCurrentAccount', async () => {
-            try {
-                const name = await vscode.window.showInputBox({
-                    prompt: getLanguage() === 'vi' ? 'Nhập tên nhận diện cho tài khoản này (tùy chọn):' : 'Enter account label / name (optional):',
-                    placeHolder: 'My Main Account'
-                });
-                const accountMgr = AccountManager.getInstance();
-                const saved = accountMgr.saveCurrentAccount(name || undefined);
-                if (saved) {
-                    vscode.window.showInformationMessage(
-                        getLanguage() === 'vi'
-                            ? `✅ Đã lưu tài khoản: ${saved.name} (${saved.email})`
-                            : `✅ Account saved: ${saved.name} (${saved.email})`
-                    );
-                    provider.updateHtml();
-                }
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to save account: ${e.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('antigravity-telegram-control.switchAccount', async () => {
-            try {
-                const accountMgr = AccountManager.getInstance();
-                const stored = accountMgr.getStoredAccounts();
-                if (stored.length === 0) {
-                    vscode.window.showWarningMessage(
-                        getLanguage() === 'vi'
-                            ? 'Chưa có tài khoản nào được lưu. Hãy dùng lệnh "Save Current Account" trước.'
-                            : 'No accounts saved yet. Save the current account first.'
-                    );
-                    return;
-                }
-
-                const current = accountMgr.getCurrentAccount();
-                const items = stored.map((acc) => {
-                    const isActive = current && current.email.toLowerCase() === acc.email.toLowerCase();
-                    return {
-                        label: `${isActive ? '🟢 ' : ''}${acc.name}`,
-                        description: acc.email,
-                        detail: `ID: ${acc.id} | Last Used: ${acc.lastUsed}`,
-                        accountId: acc.id
-                    };
-                });
-
-                const selected = await vscode.window.showQuickPick(items, {
-                    placeHolder: getLanguage() === 'vi' ? 'Chọn tài khoản muốn chuyển đổi:' : 'Select account to switch to:'
-                });
-
-                if (selected) {
-                    const res = accountMgr.switchAccount(selected.accountId);
-                    provider.updateHtml();
-                    if (statusBarManager) {
-                        statusBarManager.update();
-                    }
-                    const choice = await vscode.window.showInformationMessage(
-                        getLanguage() === 'vi'
-                            ? `✅ Đã chuyển sang tài khoản ${res.account.name} (${res.account.email})! Reload IDE để đồng bộ.`
-                            : `✅ Switched to ${res.account.name} (${res.account.email})! Reload IDE to synchronize.`,
-                        'Reload Now'
-                    );
-                    if (choice === 'Reload Now') {
-                        vscode.commands.executeCommand('workbench.action.reloadWindow');
-                    }
-                }
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to switch account: ${e.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('antigravity-telegram-control.rotateAccount', async () => {
-            try {
-                const accountMgr = AccountManager.getInstance();
-                const rotated = accountMgr.rotateAccount();
-                if (rotated) {
-                    provider.updateHtml();
-                    if (statusBarManager) {
-                        statusBarManager.update();
-                    }
-                    vscode.window.showInformationMessage(
-                        getLanguage() === 'vi'
-                            ? `🔄 Đã xoay vòng sang tài khoản: ${rotated.name} (${rotated.email})`
-                            : `🔄 Rotated to account: ${rotated.name} (${rotated.email})`
-                    );
-                } else {
-                    vscode.window.showWarningMessage(
-                        getLanguage() === 'vi'
-                            ? 'Cần ít nhất 2 tài khoản đã lưu để xoay vòng.'
-                            : 'Need at least 2 saved accounts to rotate.'
-                    );
-                }
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to rotate account: ${e.message}`);
             }
         }),
 

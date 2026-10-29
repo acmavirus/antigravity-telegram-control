@@ -216,10 +216,13 @@ async function executeCommand(command: string, timeout = 8000): Promise<{ stdout
 
 function isAntigravityProcess(command_line: string): boolean {
     const lower_cmd = command_line.toLowerCase();
-    if (/--app_data_dir\s+["']?antigravity/i.test(command_line)) {
+    if (/--app_data_dir[=\s]+["']?antigravity/i.test(command_line)) {
         return true;
     }
-    if (lower_cmd.includes('\\antigravity\\') || lower_cmd.includes('/antigravity/')) {
+    if (lower_cmd.includes('\\antigravity\\') || lower_cmd.includes('/antigravity/') || lower_cmd.includes('antigravity')) {
+        return true;
+    }
+    if (lower_cmd.includes('agy.exe') || lower_cmd.includes('agy') || lower_cmd.includes('language_server')) {
         return true;
     }
     return false;
@@ -237,8 +240,7 @@ class WindowsStrategy implements PlatformStrategy {
     getProcessListCommand(process_name: string): string {
         const script = `
             [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
-            $n = '${process_name}';
-            $f = 'name=''' + $n + '''';
+            $f = "name='agy.exe' or name='language_server_windows_x64.exe' or name='${process_name}'";
             $p = Get-CimInstance Win32_Process -Filter $f -ErrorAction SilentlyContinue;
             if ($p) { @($p) | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress } else { '[]' }
         `
@@ -274,8 +276,8 @@ class WindowsStrategy implements PlatformStrategy {
                     const ppid = item.ParentProcessId;
                     if (!pid) continue;
 
-                    const port_match = commandLine.match(/--extension_server_port[=\s]+(\d+)/);
-                    const token_match = commandLine.match(/--csrf_token[=\s]+(?:["']?)([a-f0-9\-]+)(?:["']?)/i);
+                    const port_match = commandLine.match(/--(?:extension_server_port|hub-port)[=\s]+(\d+)/i);
+                    const token_match = commandLine.match(/--csrf_token[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
 
                     if (token_match && token_match[1]) {
                         results.push({
@@ -305,8 +307,8 @@ class WindowsStrategy implements PlatformStrategy {
             const command_line = command_line_match[1].trim();
             if (!isAntigravityProcess(command_line)) continue;
 
-            const port_match = command_line.match(/--extension_server_port[=\s]+(\d+)/);
-            const token_match = command_line.match(/--csrf_token[=\s]+(?:["']?)([a-f0-9\-]+)(?:["']?)/i);
+            const port_match = command_line.match(/--(?:extension_server_port|hub-port)[=\s]+(\d+)/i);
+            const token_match = command_line.match(/--csrf_token[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
 
             if (token_match && token_match[1]) {
                 results.push({
@@ -347,8 +349,7 @@ class UnixStrategy implements PlatformStrategy {
     constructor(private isMac: boolean) {}
 
     getProcessListCommand(process_name: string): string {
-        const grepPattern = process_name.length > 0 ? `[${process_name[0]}]${process_name.slice(1)}` : process_name;
-        return `ps -A -ww -o pid,ppid,args | grep "${grepPattern}"`;
+        return `ps -A -ww -o pid,ppid,args | grep -E "(agy|language_server)" | grep -v grep`;
     }
 
     parseProcessInfo(stdout: string): ProcessInfo[] | null {
@@ -364,9 +365,9 @@ class UnixStrategy implements PlatformStrategy {
                 const ppid = parseInt(match[2], 10);
                 const cmd = match[3];
 
-                if (cmd.includes('--extension_server_port') && isAntigravityProcess(cmd)) {
-                    const port_match = cmd.match(/--extension_server_port[=\s]+(\d+)/);
-                    const token_match = cmd.match(/--csrf_token[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/);
+                if ((cmd.includes('--extension_server_port') || cmd.includes('--hub-port')) && isAntigravityProcess(cmd)) {
+                    const port_match = cmd.match(/--(?:extension_server_port|hub-port)[=\s]+(\d+)/i);
+                    const token_match = cmd.match(/--csrf_token[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
 
                     if (token_match && token_match[1]) {
                         results.push({
@@ -433,13 +434,11 @@ class UnixStrategy implements PlatformStrategy {
 
 function getPlatformStrategy(): { strategy: PlatformStrategy; processName: string } {
     if (process.platform === 'win32') {
-        return { strategy: new WindowsStrategy(), processName: 'language_server_windows_x64.exe' };
+        return { strategy: new WindowsStrategy(), processName: 'agy.exe' };
     } else if (process.platform === 'darwin') {
-        const name = `language_server_macos${process.arch === 'arm64' ? '_arm' : ''}`;
-        return { strategy: new UnixStrategy(true), processName: name };
+        return { strategy: new UnixStrategy(true), processName: 'agy' };
     } else {
-        const name = `language_server_linux${process.arch === 'arm64' ? '_arm' : '_x64'}`;
-        return { strategy: new UnixStrategy(false), processName: name };
+        return { strategy: new UnixStrategy(false), processName: 'agy' };
     }
 }
 
@@ -594,13 +593,15 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
     const info = sortedInfos[0];
 
     // 3. Scan ports
-    const portCmd = strategy.getPortListCommand(info.pid);
     let portOutput = '';
     try {
+        const portCmd = strategy.getPortListCommand(info.pid);
         const { stdout } = await executeCommand(portCmd);
         portOutput = stdout;
     } catch (e: any) {
-        throw new Error(`Failed to list ports for PID ${info.pid}: ${e.message}`);
+        if (info.extension_port <= 0) {
+            throw new Error(`Failed to list ports for PID ${info.pid}: ${e.message}`);
+        }
     }
 
     let ports = strategy.parseListeningPorts(portOutput, info.pid);

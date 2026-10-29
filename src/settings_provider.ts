@@ -4,7 +4,6 @@ import * as path from 'path';
 import { getSettingsHtml } from './settings_view';
 import * as os from 'os';
 import { isScriptInjected } from './workbench_injector';
-import { AccountManager } from './account_manager';
 
 export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'telegram-control-welcome';
@@ -171,121 +170,6 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                 case 'uninstallScript':
                     vscode.commands.executeCommand('antigravity-telegram-control.uninstallScript');
                     break;
-
-                case 'loginNewAccount':
-                    try {
-                        const possibleCommands = [
-                            'antigravity.login',
-                            'antigravity.signIn',
-                            'antigravity.authenticate',
-                            'workbench.action.accounts',
-                            'workbench.action.openAccounts',
-                            'workbench.action.manageAccounts'
-                        ];
-                        let executed = false;
-                        for (const cmd of possibleCommands) {
-                            try {
-                                await vscode.commands.executeCommand(cmd);
-                                executed = true;
-                                break;
-                            } catch {}
-                        }
-                        
-                        const action = await vscode.window.showInformationMessage(
-                            '🔐 Đang mở tiến trình đăng nhập Google OAuth. Sau khi đăng nhập thành công trên trình duyệt, bấm "Làm mới & Lưu" để snapshot tài khoản mới vào danh sách.',
-                            'Làm mới & Lưu'
-                        );
-                        if (action === 'Làm mới & Lưu') {
-                            this.updateHtml();
-                            try {
-                                const accountMgr = AccountManager.getInstance();
-                                const saved = accountMgr.saveCurrentAccount();
-                                if (saved) {
-                                    vscode.window.showInformationMessage(`✅ Đã lưu snapshot tài khoản mới: ${saved.name} (${saved.email})`);
-                                    this.updateHtml();
-                                }
-                            } catch (err: any) {
-                                vscode.window.showWarningMessage(`Chưa phát hiện tài khoản mới: ${err.message}. Hãy bấm 🔄 Refresh Info sau khi IDE cập nhật.`);
-                            }
-                        } else {
-                            this.updateHtml();
-                        }
-                    } catch (e: any) {
-                        vscode.window.showErrorMessage(`Không thể mở trình đăng nhập: ${e.message}`);
-                    }
-                    break;
-
-                case 'refreshAccount':
-                    try {
-                        this.updateHtml();
-                        vscode.window.showInformationMessage('🔄 Đã làm mới thông tin tài khoản hiện tại từ IDE.');
-                    } catch (e: any) {
-                        vscode.window.showErrorMessage(`Làm mới thất bại: ${e.message}`);
-                    }
-                    break;
-
-                case 'saveCurrentAccount':
-                    try {
-                        const accountMgr = AccountManager.getInstance();
-                        const saved = accountMgr.saveCurrentAccount(data.name || undefined);
-                        if (saved) {
-                            vscode.window.showInformationMessage(`✅ Đã lưu snapshot tài khoản: ${saved.name} (${saved.email})`);
-                            this.updateHtml();
-                        }
-                    } catch (e: any) {
-                        vscode.window.showErrorMessage(`Lưu tài khoản thất bại: ${e.message}`);
-                    }
-                    break;
-
-                case 'switchAccount':
-                    try {
-                        const accountMgr = AccountManager.getInstance();
-                        const result = accountMgr.switchAccount(data.accountId);
-                        this.updateHtml();
-                        const choice = await vscode.window.showInformationMessage(
-                            `✅ Đã chuyển sang tài khoản ${result.account.name} (${result.account.email})! Reload IDE để đồng bộ.`,
-                            'Reload Now'
-                        );
-                        if (choice === 'Reload Now') {
-                            vscode.commands.executeCommand('workbench.action.reloadWindow');
-                        }
-                    } catch (e: any) {
-                        vscode.window.showErrorMessage(`Chuyển tài khoản thất bại: ${e.message}`);
-                    }
-                    break;
-
-                case 'deleteAccount':
-                    try {
-                        const accountMgr = AccountManager.getInstance();
-                        accountMgr.deleteAccount(data.accountId);
-                        vscode.window.showInformationMessage(`🗑️ Đã xóa tài khoản khỏi danh sách lưu trữ.`);
-                        this.updateHtml();
-                    } catch (e: any) {
-                        vscode.window.showErrorMessage(`Xóa tài khoản thất bại: ${e.message}`);
-                    }
-                    break;
-
-                case 'rotateAccount':
-                    try {
-                        const accountMgr = AccountManager.getInstance();
-                        const rotated = accountMgr.rotateAccount();
-                        if (rotated) {
-                            this.updateHtml();
-                            vscode.window.showInformationMessage(`🔄 Đã xoay vòng sang tài khoản: ${rotated.name} (${rotated.email})`);
-                        }
-                    } catch (e: any) {
-                        vscode.window.showErrorMessage(`Xoay vòng thất bại: ${e.message}`);
-                    }
-                    break;
-
-                case 'saveAccountsConfig':
-                    try {
-                        await config.update('autoRotateAccounts', data.autoRotateAccounts ?? false, vscode.ConfigurationTarget.Global);
-                        vscode.window.showInformationMessage('Cài đặt Auto Rotate tài khoản đã được lưu!');
-                    } catch (e: any) {
-                        vscode.window.showErrorMessage(`Lỗi lưu cấu hình: ${e.message}`);
-                    }
-                    break;
             }
         });
     }
@@ -318,11 +202,6 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
             const totalClicks = this.context.globalState.get<number>('totalClicks') ?? 0;
             const clickStats = this.context.globalState.get<Record<string, number>>('clickStats') ?? {};
             const clickLog = this.context.globalState.get<Array<any>>('clickLog') ?? [];
-
-            const autoRotateAccounts = config.get<boolean>('autoRotateAccounts') ?? false;
-            const accountMgr = AccountManager.getInstance();
-            const currentAccount = accountMgr.getCurrentAccount();
-            const storedAccounts = accountMgr.getStoredAccounts();
 
             let agentsMs = '';
             let geminiMd = '';
@@ -363,10 +242,7 @@ export class TelegramSettingsProvider implements vscode.WebviewViewProvider {
                 isScriptInjected(),
                 scrollEnabled,
                 scrollPauseMs,
-                scrollIntervalMs,
-                storedAccounts,
-                currentAccount,
-                autoRotateAccounts
+                scrollIntervalMs
             );
         }
     }
