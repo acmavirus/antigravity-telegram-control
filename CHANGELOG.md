@@ -4,6 +4,13 @@ All notable changes to the **Antigravity Telegram Control** extension will be do
 
 ---
 
+## v1.0.5 — Antigravity Quota API Updates & Stability Patch
+*   **🩺 Modern Antigravity Quota Handshake**: Switched health check to use `/Heartbeat` and `/GetUserStatus` endpoints, resolving connection failures from the deprecation of `/GetUnleashData` in recent Antigravity updates.
+*   **🚀 Ultra-Fast Connection**: Prioritized testing the extracted CLI port directly before running PowerShell port enumeration, reducing quota query latency from ~8s to ~1s.
+*   **📊 Group-Level Quota Synchronization**: Fully aligned with Antigravity's new grouped quota architecture (Weekly & 5-Hour shared limit pools for Gemini Models and Claude/GPT 3P Models), correctly inheriting percentage allocations and avoiding `undefined`/`N/A` model values.
+*   **🧹 Filtered Ghost Models**: Excluded internal placeholder models without quota configurations from cluttering Telegram and status bar reports.
+*   **🌐 Protocol Defaulting**: Defaulted localhost connections to HTTP with resilient fallback, eliminating SSL packet length errors.
+
 ## v1.0.4 — Update Quota API & Language Server Handshake
 *   **🩺 Modern Antigravity Quota Handshake**: Updated health check to use `/Heartbeat` and `/GetUserStatus` endpoints, fixing connection failures caused by the deprecation/404 of `/GetUnleashData` in the updated Antigravity binary.
 *   **🚀 Ultra-Fast Connection**: Prioritized testing the extracted CLI port directly before running PowerShell port enumeration, reducing quota query latency from ~8s to ~1s.
