@@ -82,7 +82,7 @@ const protocolCache = new Map<string, Protocol>();
 
 function getCachedProtocol(hostname: string, port: number): Protocol {
     const key = `${hostname}:${port}`;
-    return protocolCache.get(key) || 'https';
+    return protocolCache.get(key) || 'http';
 }
 
 function setCachedProtocol(hostname: string, port: number, protocol: Protocol): void {
@@ -174,23 +174,20 @@ async function httpRequest<T>(options: HttpRequestOptions): Promise<HttpResponse
     const { hostname, port, allowFallback = true } = options;
     const cachedProtocol = getCachedProtocol(hostname, port);
 
-    if (cachedProtocol === 'http') {
-        return doRequest<T>(options, 'http');
-    }
-
     try {
-        return await doRequest<T>(options, 'https');
-    } catch (httpsError) {
+        return await doRequest<T>(options, cachedProtocol);
+    } catch (primaryError) {
         if (allowFallback) {
+            const fallbackProtocol = cachedProtocol === 'http' ? 'https' : 'http';
             try {
-                const result = await doRequest<T>(options, 'http');
-                setCachedProtocol(hostname, port, 'http');
+                const result = await doRequest<T>(options, fallbackProtocol);
+                setCachedProtocol(hostname, port, fallbackProtocol);
                 return result;
             } catch {
-                throw httpsError;
+                throw primaryError;
             }
         }
-        throw httpsError;
+        throw primaryError;
     }
 }
 
@@ -240,14 +237,13 @@ class WindowsStrategy implements PlatformStrategy {
     getProcessListCommand(process_name: string): string {
         const script = `
             [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
-            $f = "name='agy.exe' or name='language_server_windows_x64.exe' or name='${process_name}'";
-            $p = Get-CimInstance Win32_Process -Filter $f -ErrorAction SilentlyContinue;
+            $p = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'agy|language_server|${process_name}' };
             if ($p) { @($p) | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress } else { '[]' }
         `
         .replace(/\n\s+/g, ' ')
         .trim();
 
-        return `chcp 65001 >nul && powershell -ExecutionPolicy Bypass -NoProfile -Command "${script}"`;
+        return `powershell -ExecutionPolicy Bypass -NoProfile -Command "${script}"`;
     }
 
     parseProcessInfo(stdout: string): ProcessInfo[] | null {
@@ -276,8 +272,8 @@ class WindowsStrategy implements PlatformStrategy {
                     const ppid = item.ParentProcessId;
                     if (!pid) continue;
 
-                    const port_match = commandLine.match(/--(?:extension_server_port|hub-port)[=\s]+(\d+)/i);
-                    const token_match = commandLine.match(/--csrf_token[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
+                    const port_match = commandLine.match(/--(?:extension[_-]server[_-]port|hub[_-]port|server[_-]port|port)[=\s]+(\d+)/i);
+                    const token_match = commandLine.match(/--(?:csrf[_-]token|token)[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
 
                     if (token_match && token_match[1]) {
                         results.push({
@@ -307,8 +303,8 @@ class WindowsStrategy implements PlatformStrategy {
             const command_line = command_line_match[1].trim();
             if (!isAntigravityProcess(command_line)) continue;
 
-            const port_match = command_line.match(/--(?:extension_server_port|hub-port)[=\s]+(\d+)/i);
-            const token_match = command_line.match(/--csrf_token[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
+            const port_match = command_line.match(/--(?:extension[_-]server[_-]port|hub[_-]port|server[_-]port|port)[=\s]+(\d+)/i);
+            const token_match = command_line.match(/--(?:csrf[_-]token|token)[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
 
             if (token_match && token_match[1]) {
                 results.push({
@@ -349,7 +345,7 @@ class UnixStrategy implements PlatformStrategy {
     constructor(private isMac: boolean) {}
 
     getProcessListCommand(process_name: string): string {
-        return `ps -A -ww -o pid,ppid,args | grep -E "(agy|language_server)" | grep -v grep`;
+        return `ps -A -ww -o pid,ppid,args | grep -E "(agy|language_server|${process_name})" | grep -v grep`;
     }
 
     parseProcessInfo(stdout: string): ProcessInfo[] | null {
@@ -365,9 +361,9 @@ class UnixStrategy implements PlatformStrategy {
                 const ppid = parseInt(match[2], 10);
                 const cmd = match[3];
 
-                if ((cmd.includes('--extension_server_port') || cmd.includes('--hub-port')) && isAntigravityProcess(cmd)) {
-                    const port_match = cmd.match(/--(?:extension_server_port|hub-port)[=\s]+(\d+)/i);
-                    const token_match = cmd.match(/--csrf_token[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
+                if ((cmd.includes('--extension_server_port') || cmd.includes('--hub-port') || cmd.includes('--hub_port')) && isAntigravityProcess(cmd)) {
+                    const port_match = cmd.match(/--(?:extension[_-]server[_-]port|hub[_-]port|server[_-]port|port)[=\s]+(\d+)/i);
+                    const token_match = cmd.match(/--(?:csrf[_-]token|token)[=\s]+(?:["']?)([a-zA-Z0-9\-_.]+)(?:["']?)/i);
 
                     if (token_match && token_match[1]) {
                         results.push({
@@ -443,6 +439,47 @@ function getPlatformStrategy(): { strategy: PlatformStrategy; processName: strin
 }
 
 async function testPort(port: number, csrf_token: string): Promise<boolean> {
+    // 1. Try Heartbeat (fast & lightweight, supported by recent Antigravity updates)
+    try {
+        const response = await httpRequest({
+            hostname: '127.0.0.1',
+            port,
+            path: '/exa.language_server_pb.LanguageServerService/Heartbeat',
+            method: 'POST',
+            headers: {
+                'X-Codeium-Csrf-Token': csrf_token,
+                'Connect-Protocol-Version': '1',
+            },
+            body: JSON.stringify({}),
+            timeout: 2000,
+            allowFallback: true,
+        });
+        if (response.statusCode === 200) return true;
+    } catch {
+        // Fallback
+    }
+
+    // 2. Try GetUserStatus
+    try {
+        const response = await httpRequest({
+            hostname: '127.0.0.1',
+            port,
+            path: '/exa.language_server_pb.LanguageServerService/GetUserStatus',
+            method: 'POST',
+            headers: {
+                'X-Codeium-Csrf-Token': csrf_token,
+                'Connect-Protocol-Version': '1',
+            },
+            body: JSON.stringify({ metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' } }),
+            timeout: 3000,
+            allowFallback: true,
+        });
+        if (response.statusCode === 200) return true;
+    } catch {
+        // Fallback
+    }
+
+    // 3. Fallback to legacy GetUnleashData
     try {
         const response = await httpRequest({
             hostname: '127.0.0.1',
@@ -592,34 +629,42 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
 
     const info = sortedInfos[0];
 
-    // 3. Scan ports
-    let portOutput = '';
-    try {
-        const portCmd = strategy.getPortListCommand(info.pid);
-        const { stdout } = await executeCommand(portCmd);
-        portOutput = stdout;
-    } catch (e: any) {
-        if (info.extension_port <= 0) {
-            throw new Error(`Failed to list ports for PID ${info.pid}: ${e.message}`);
+    // 3. Find connected port
+    let connectPort: number | null = null;
+    if (info.extension_port > 0) {
+        const working = await testPort(info.extension_port, info.csrf_token);
+        if (working) {
+            connectPort = info.extension_port;
         }
     }
 
-    let ports = strategy.parseListeningPorts(portOutput, info.pid);
-    if (info.extension_port > 0 && !ports.includes(info.extension_port)) {
-        ports = [info.extension_port, ...ports];
-    }
+    if (!connectPort) {
+        let portOutput = '';
+        try {
+            const portCmd = strategy.getPortListCommand(info.pid);
+            const { stdout } = await executeCommand(portCmd);
+            portOutput = stdout;
+        } catch (e: any) {
+            if (info.extension_port <= 0) {
+                throw new Error(`Failed to list ports for PID ${info.pid}: ${e.message}`);
+            }
+        }
 
-    if (ports.length === 0) {
-        throw new Error(`No listening ports found for Antigravity process PID ${info.pid}.`);
-    }
+        let ports = strategy.parseListeningPorts(portOutput, info.pid);
+        if (info.extension_port > 0 && !ports.includes(info.extension_port)) {
+            ports = [info.extension_port, ...ports];
+        }
 
-    // 4. Test ports to find the active API server
-    let connectPort: number | null = null;
-    for (const port of ports) {
-        const working = await testPort(port, info.csrf_token);
-        if (working) {
-            connectPort = port;
-            break;
+        if (ports.length === 0) {
+            throw new Error(`No listening ports found for Antigravity process PID ${info.pid}.`);
+        }
+
+        for (const port of ports) {
+            const working = await testPort(port, info.csrf_token);
+            if (working) {
+                connectPort = port;
+                break;
+            }
         }
     }
 
@@ -627,7 +672,7 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
         throw new Error('Could not establish connection to the Antigravity API server on any listening port.');
     }
 
-    // 5. Query user status & user quota summary in parallel
+    // 4. Query user status & user quota summary in parallel
     const [statusData, quotaSummary] = await Promise.all([
         requestUserStatus(connectPort, info.csrf_token),
         requestUserQuotaSummary(connectPort, info.csrf_token),
@@ -688,14 +733,14 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
 
     const rawModels = userStatus.cascadeModelConfigData?.clientModelConfigs || [];
     const models: ModelQuotaInfo[] = rawModels
-        .filter((m: any) => m.quotaInfo)
+        .filter((m: any) => m.quotaInfo && (m.quotaInfo.resetTime || m.quotaInfo.remainingFraction !== undefined))
         .map((m: any) => {
-            let reset_time = new Date(m.quotaInfo.resetTime);
-            if (Number.isNaN(reset_time.getTime())) {
-                reset_time = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            let reset_time = m.quotaInfo.resetTime ? new Date(m.quotaInfo.resetTime) : undefined;
+            if (reset_time && Number.isNaN(reset_time.getTime())) {
+                reset_time = undefined;
             }
             const now = new Date();
-            const diff = reset_time.getTime() - now.getTime();
+            const diff = reset_time ? Math.max(0, reset_time.getTime() - now.getTime()) : 0;
 
             return {
                 label: m.label || m.modelOrAlias?.model || 'Unknown Model',
@@ -703,9 +748,9 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
                 remaining_fraction: m.quotaInfo.remainingFraction,
                 remaining_percentage: m.quotaInfo.remainingFraction !== undefined ? Math.round(m.quotaInfo.remainingFraction * 100) : undefined,
                 is_exhausted: m.quotaInfo.remainingFraction === 0,
-                reset_time: reset_time,
+                reset_time: reset_time || new Date(),
                 time_until_reset: diff,
-                time_until_reset_formatted: formatTimeUntilReset(diff, reset_time, lang),
+                time_until_reset_formatted: formatTimeUntilReset(diff, reset_time || new Date(), lang),
             };
         });
 
@@ -727,33 +772,65 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
     if (quotaSummary?.groups && Array.isArray(quotaSummary.groups) && quotaSummary.groups.length > 0) {
         for (const group of quotaSummary.groups) {
             const title = group.displayName || 'AI Models';
-            const isClaudeGpt = title.toLowerCase().includes('claude') || title.toLowerCase().includes('gpt') || title.toLowerCase().includes('3p');
-            const group_key = isClaudeGpt ? 'claudeGptModels' : 'geminiModels';
-            const groupModels = isClaudeGpt ? claudeGptModelsList : geminiModelsList;
+            const titleLower = title.toLowerCase();
+            const isClaudeGpt = titleLower.includes('claude') || titleLower.includes('gpt') || titleLower.includes('3p');
+            const isGemini = titleLower.includes('gemini');
+            const group_key = isClaudeGpt ? 'claudeGptModels' : (isGemini ? 'geminiModels' : titleLower.replace(/[^a-z0-9]/g, '_'));
+
+            // Match models belonging to this group
+            const descLower = (group.description || '').toLowerCase();
+            const groupModels = models.filter((m: any) => {
+                const labelLower = m.label.toLowerCase();
+                if (descLower.includes(labelLower) || (m.model_id && descLower.includes(m.model_id.toLowerCase()))) {
+                    return true;
+                }
+                if (isClaudeGpt) {
+                    return labelLower.includes('claude') || labelLower.includes('gpt') || labelLower.includes('openai');
+                }
+                if (isGemini) {
+                    return labelLower.includes('gemini');
+                }
+                return false;
+            });
 
             const limits: QuotaLimitItem[] = [];
             let minPct = 100;
 
             const buckets = group.buckets || [];
-            const fiveHourBucket = buckets.find((b: any) => b.window === '5h' || b.bucketId?.includes('5h'));
-            const weeklyBucket = buckets.find((b: any) => b.window === 'weekly' || b.bucketId?.includes('weekly'));
+            for (const bucket of buckets) {
+                const pct = Math.round((bucket.remainingFraction ?? 1) * 100);
+                const resetTime = bucket.resetTime ? new Date(bucket.resetTime) : undefined;
+                const diff = (resetTime && !Number.isNaN(resetTime.getTime())) ? Math.max(0, resetTime.getTime() - Date.now()) : 0;
+                const formatted = (resetTime && diff > 0) ? formatTimeUntilReset(diff, resetTime, lang) : (lang === 'vi' ? 'Sẵn sàng' : 'Ready');
 
-            // 1. Five Hour Limit
-            if (fiveHourBucket) {
-                const pct = Math.round((fiveHourBucket.remainingFraction ?? 1) * 100);
-                const resetTime = fiveHourBucket.resetTime ? new Date(fiveHourBucket.resetTime) : undefined;
-                const diff = resetTime ? resetTime.getTime() - Date.now() : 0;
-                const formatted = resetTime ? formatTimeUntilReset(diff, resetTime, lang) : (lang === 'vi' ? 'Sẵn sàng' : 'Ready');
-                const sub = (pct < 100 && diff > 0)
-                    ? (lang === 'vi'
-                        ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${formatted}.`
-                        : `You have used some of your 5-hour limit, it will fully refresh in ${formatted}.`)
-                    : undefined;
+                const isFiveHour = bucket.window === '5h' || bucket.bucketId?.includes('5h');
+                const isWeekly = bucket.window === 'weekly' || bucket.bucketId?.includes('weekly');
+
+                let name = bucket.displayName || (isFiveHour ? 'Five Hour Limit' : (isWeekly ? 'Weekly Limit' : 'Limit'));
+                let name_key = isFiveHour ? 'fiveHourLimit' : (isWeekly ? 'weeklyLimit' : (bucket.bucketId || bucket.window || 'limit'));
+
+                if (lang === 'vi') {
+                    if (isFiveHour) name = 'Hạn mức 5 giờ';
+                    else if (isWeekly) name = 'Hạn mức tuần';
+                }
+
+                let sub: string | undefined;
+                if (pct < 100 && diff > 0) {
+                    if (lang === 'vi') {
+                        sub = isFiveHour
+                            ? `Bạn đã sử dụng một phần hạn mức 5 giờ, sẽ làm mới hoàn toàn sau ${formatted}.`
+                            : (isWeekly
+                                ? `Bạn đã sử dụng một phần hạn mức tuần, sẽ làm mới hoàn toàn sau ${formatted}.`
+                                : `Bạn đã sử dụng một phần hạn mức, sẽ làm mới hoàn toàn sau ${formatted}.`);
+                    } else {
+                        sub = bucket.description || `You have used some of your limit, it will fully refresh in ${formatted}.`;
+                    }
+                }
 
                 if (pct < minPct) minPct = pct;
                 limits.push({
-                    name: lang === 'vi' ? 'Hạn mức 5 giờ' : 'Five Hour Limit',
-                    name_key: 'fiveHourLimit',
+                    name,
+                    name_key,
                     remaining_percentage: pct,
                     reset_time: resetTime,
                     time_until_reset: diff,
@@ -762,28 +839,13 @@ export async function fetchQuotaInfo(lang: string = 'en'): Promise<QuotaSnapshot
                 });
             }
 
-            // 2. Weekly Limit
-            if (weeklyBucket) {
-                const pct = Math.round((weeklyBucket.remainingFraction ?? 1) * 100);
-                const resetTime = weeklyBucket.resetTime ? new Date(weeklyBucket.resetTime) : undefined;
-                const diff = resetTime ? resetTime.getTime() - Date.now() : 0;
-                const formatted = resetTime ? formatTimeUntilReset(diff, resetTime, lang) : (lang === 'vi' ? 'Sẵn sàng' : 'Ready');
-                const sub = (pct < 100 && diff > 0)
-                    ? (lang === 'vi'
-                        ? `Bạn đã sử dụng một phần hạn mức tuần, sẽ làm mới hoàn toàn sau ${formatted}.`
-                        : `You have used some of your weekly limit, it will fully refresh in ${formatted}.`)
-                    : undefined;
-
-                if (pct < minPct) minPct = pct;
-                limits.push({
-                    name: lang === 'vi' ? 'Hạn mức tuần' : 'Weekly Limit',
-                    name_key: 'weeklyLimit',
-                    remaining_percentage: pct,
-                    reset_time: resetTime,
-                    time_until_reset: diff,
-                    time_until_reset_formatted: formatted,
-                    subtitle: sub,
-                });
+            // Sync quota down to group models that don't have individual remainingFraction
+            for (const gm of groupModels) {
+                if (gm.remaining_fraction === undefined) {
+                    gm.remaining_fraction = minPct / 100;
+                    gm.remaining_percentage = minPct;
+                    gm.is_exhausted = (minPct === 0);
+                }
             }
 
             model_groups.push({

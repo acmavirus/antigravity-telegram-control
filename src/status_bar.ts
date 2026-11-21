@@ -105,7 +105,9 @@ export class StatusBarManager implements vscode.Disposable {
 
                 const minPct = Math.min(fiveHourPct, weeklyPct);
                 const statusEmoji = this.getStatusEmoji(minPct);
-                const shortTitle = group.title.includes('Gemini') ? 'Gemini' : 'Claude/GPT';
+                const shortTitle = group.title.includes('Gemini') 
+                    ? 'Gemini' 
+                    : (group.title.includes('Claude') || group.title.includes('GPT') ? 'Claude/GPT' : group.title.slice(0, 10));
                 parts.push(`${statusEmoji} ${shortTitle} ${fiveHourPct}%/${weeklyPct}%`);
 
                 tooltipRows.push(`| **${group.title}** | -- | -- |`);

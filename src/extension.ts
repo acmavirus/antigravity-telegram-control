@@ -425,6 +425,10 @@ async function startBot(context: vscode.ExtensionContext): Promise<void> {
                 if (snapshot.model_groups && snapshot.model_groups.length > 0) {
                     for (const group of snapshot.model_groups) {
                         replyText += `*${group.title}* ℹ️\n`;
+                        if (group.models && group.models.length > 0) {
+                            const modelNames = [...new Set(group.models.map(m => m.label))].join(', ');
+                            replyText += `_${modelNames}_\n`;
+                        }
                         for (const limit of group.limits) {
                             const pctStr = `${limit.remaining_percentage}%`;
                             replyText += `  • *${limit.name}*: *${pctStr}*\n`;
